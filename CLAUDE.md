@@ -11,14 +11,12 @@ npm run tauri dev
 # Frontend only (Vite on port 1420, no native window)
 npm run dev
 
-# TypeScript check + production build
-npm run build
+# TypeScript check
+npx tsc --noEmit
 
 # Production desktop app build
 npm run tauri build
 ```
-
-No lint or test scripts are configured yet.
 
 ## Architecture
 
@@ -32,49 +30,83 @@ No lint or test scripts are configured yet.
 - `main.tsx` must import `./index.css` for Tailwind and CSS variables to load
 
 ### Backend (`src-tauri/`)
-- Entry: `src-tauri/src/main.rs` calls `thought_flow_lib::run()`
-- Tauri builder and command registration live in `src-tauri/src/lib.rs`
+- Entry: `src-tauri/src/main.rs` → `thought_flow_lib::run()`
 - App identifier: `com.mash.thought-flow`
-- Config: `src-tauri/tauri.conf.json`
-- Window starts maximized with `decorations: false` — the custom `TitleBar` handles drag, minimize, maximize, and close via `@tauri-apps/api/window`
+- Window starts maximized with `decorations: false` — `TitleBar` handles drag, minimize, maximize, close
+- Tauri capabilities in `src-tauri/capabilities/default.json`: explicit window + fs permissions, fs scoped to `$HOME/Documents/thought-flow/**`
 
-### Frontend ↔ Backend IPC
-Rust functions annotated with `#[tauri::command]` are registered in `lib.rs` via `.invoke_handler(tauri::generate_handler![...])`. The frontend calls them with `invoke()` from `@tauri-apps/api/core`.
+## Core Concept
 
-### Build pipeline
-Tauri orchestrates the two build steps automatically via `beforeDevCommand`/`beforeBuildCommand` in `tauri.conf.json`. Do not invoke them out of order manually.
+Every file is a chat session. Files are stored in `~/Documents/thought-flow/` with a two-part format:
 
-## UI System
+```
+[{"role":"user","content":"...","timestamp":0},...]
+[+]
+{"meta":{"type":"flowchart",...},"nodes":[...],"edges":[...],"styles":{...},"extensions":{}}
+```
 
-### Theme & color mode
-- Themes defined in `src/themes/index.ts` — 6 themes (Raven, Pluto, Moon, Mother Tree, Owl, Dawn), each with dark/light token sets
-- `applyTheme(key, mode)` swaps CSS variables on `document.documentElement` at runtime — not class-based
-- `useSettingsStore` (Zustand, persisted to localStorage as `"thought-flow-settings"`) holds the active theme and color mode
-- `applyTheme` is called at module level in `App.tsx` before first render to avoid a flash of unstyled content
-- Base CSS variables and Tailwind `@theme inline` mapping live in `src/index.css`
+- Part 1: JSON array of `ChatMessage` objects
+- Part 2: `ChartGraph` JSON (absent/empty on new files)
+- Delimiter: `\n[+]\n`
 
-### Component layout
-- `TitleBar` — fixed 42px header with sidebar toggle, chat toggle, settings (opens ThemeModal), theme toggle, and native window controls
-- `Sidebar` — left panel, default 240px, resizable (160–480px) via drag handle on right edge
-- `ChatPanel` — right panel, default 288px, resizable (200–600px) via drag handle on left edge; contains message list and textarea input with action bar
-- `src/components/ui/` — `Button` (CVA variants) and `Dialog` (Radix UI)
-- `src/lib/utils.ts` — `cn()` helper (clsx + tailwind-merge)
+Clicking a file in the sidebar opens it as a tab. The canvas shows the chart; the chat panel shows the conversation. Sending a message streams to Ollama which returns a `ChartGraph`; the canvas updates and the file is auto-saved.
+
+## State Management
+
+**`src/store/tabStore.ts`** — single source of truth (Zustand, not persisted):
+- `tabs: Tab[]` — each tab holds `path`, `name`, `messages`, `chart`, `isDirty`
+- `openTab(path, name)` — reads file, parses both parts, adds tab
+- `addMessage / setChart / saveTab` — mutate tab state and write to disk
+- `closeTab` — removes tab, switches to adjacent
+
+**`src/store/settingsStore.ts`** — theme + color mode (Zustand, persisted to localStorage as `"thought-flow-settings"`)
+
+## UI Components
+
+### Layout
+- `TitleBar` — fixed 42px header: left (sidebar/files/settings), center (`TabBar`), right (chat toggle, theme, window controls)
+- `TabBar` — rendered inside TitleBar center; tabs sourced from `tabStore`
+- `Sidebar` — left panel, default 240px, resizable 160–480px (drag handle on right edge)
+- `ChatPanel` — right panel, default 288px, resizable 200–600px (drag handle on left edge)
+- `App.tsx` renders `<Flowchart key={activeTab.path} chart={activeTab.chart} />` in the main area (key forces remount on tab switch, triggering fit-to-view)
 
 ### Resizable panels
-Both `Sidebar` and `ChatPanel` use the same pointer-based resize pattern: `onMouseDown` on a 4px edge handle attaches `mousemove`/`mouseup` to `document`, sets `cursor` and `userSelect` on `body` during drag, and clamps width between min/max constants defined at the top of each file.
+Both panels use the same pointer pattern: `onMouseDown` on a 4px edge handle → attach `mousemove`/`mouseup` to `document`, set `cursor`/`userSelect` on body, clamp to min/max.
 
-### Sidebar / file management
-- `FileExplorer.tsx` manages vault state and mounts the `ExplorerCtx` provider
-- `TreeNode.tsx` renders files and folders recursively; folders are lazy-loaded on expand
-- `dnd.ts` implements pointer-based drag-and-drop (HTML5 DnD is broken on WebKitGTK/Linux)
-- `ContextMenu.tsx` handles right-click rename/delete/create; `inputs.tsx` handles inline create and rename inputs
-
-### Chat
-- `src/store/chatStore.ts` — Zustand store holding the message list (`id`, `role`, `content`, `timestamp`); not persisted
-- `ChatPanel.tsx` — message list uses `flex-col-reverse` to keep newest at bottom; textarea auto-grows up to 160px; send on Enter, newline on Shift+Enter
+### Theme system
+- 6 themes in `src/themes/index.ts` (Raven, Pluto, Moon, Mother Tree, Owl, Dawn), each with `dark`/`light` token sets
+- `applyTheme(key, mode)` swaps CSS vars on `document.documentElement` at runtime (not class-based)
+- Called at module level in `App.tsx` before first render to avoid flash
 
 ### Tailwind CSS v4
-Uses `@tailwindcss/vite` plugin (not PostCSS). Semantic color tokens (`background`, `foreground`, `primary`, etc.) are Tailwind utilities mapped via `@theme inline` to CSS vars.
+`@tailwindcss/vite` plugin (not PostCSS). Semantic tokens (`background`, `foreground`, `primary`, etc.) mapped via `@theme inline` in `src/index.css`.
 
-## Tauri Capabilities
-Window and fs permissions are explicitly listed in `src-tauri/capabilities/default.json`. Required window permissions: `allow-minimize`, `allow-toggle-maximize`, `allow-close`, `allow-is-maximized`, `allow-start-dragging`. File system access is scoped to `$HOME/Documents/thought-flow/**` via `fs:scope`.
+## Chart System (`src/lib/chart/types.ts`)
+
+`ChartGraph` is the extensible chart data format:
+- `meta.type: "flowchart"` — discriminator for future chart types (timeline, mindmap, etc.)
+- `ChartNode`: `id`, `text`, `type`, `shape`, `styleClass`, `metadata`
+- `ChartEdge`: `from`, `to`, `type`, `label`, `style`, `metadata`
+
+### Flowchart renderer (`src/components/Flowchart/`)
+Ported from mkdgms with UIG→ChartGraph rename:
+- `layout.ts` — Sugiyama hierarchical layout (BFS rank assignment, barycenter sort, pixel coordinate placement)
+- `NodeShape.tsx` — 10 SVG shapes (rounded-rect, rect, diamond, parallelogram, hexagon, subroutine, cylinder, double-circle, flag, stadium)
+- `EdgePath.tsx` — Catmull-Rom → Bézier curves with arrowheads; back edges (loop/jump) routed around the left margin
+- `index.tsx` — pan (pointer capture), zoom (wheel toward cursor), fit-to-view on first render; `key={activeTab.path}` in App forces remount on tab switch
+
+## Ollama Integration (`src/lib/ollama.ts`)
+
+- Model: `llama3.1:8b` at `http://localhost:11434/api/chat` with `stream: true`
+- Streams NDJSON, accumulates tokens, calls `onChunk` per token
+- System prompt instructs the model to respond ONLY with a valid `ChartGraph` JSON
+- Logs input messages and full response to console (`[ollama] input messages:` / `[ollama] full response:`)
+- On stream end, `ChatPanel` tries `JSON.parse` of the full response — if valid `ChartGraph`, calls `setChart`; then saves the file
+
+## Sidebar / File Management
+
+- Vault root: `~/Documents/thought-flow/` (created on first launch)
+- `FileExplorer.tsx` — manages vault state, mounts `ExplorerCtx`
+- `TreeNode.tsx` — file click calls `openTab`; folders lazy-load on expand
+- `dnd.ts` — pointer-based drag-and-drop (HTML5 DnD broken on WebKitGTK/Linux)
+- `ContextMenu.tsx` — right-click rename/delete/create

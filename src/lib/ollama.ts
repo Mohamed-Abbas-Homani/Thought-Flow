@@ -47,7 +47,10 @@ export async function streamOllama(
       ...messages,
     ],
     stream: true,
+    format: "json",
   };
+
+  console.log("[ollama] input messages:", payload.messages);
 
   const response = await fetch("http://localhost:11434/api/chat", {
     method: "POST",
@@ -63,13 +66,18 @@ export async function streamOllama(
   const reader  = response.body!.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
+  let buffer = "";
+  let done = false;
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
+  while (!done) {
+    const { value, done: streamDone } = await reader.read();
+    if (streamDone) break;
 
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split("\n")) {
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line) as { message?: { content?: string }; done?: boolean };
@@ -78,12 +86,35 @@ export async function streamOllama(
           accumulated += token;
           onChunk(token);
         }
-        if (parsed.done) break;
+        if (parsed.done) {
+          done = true;
+          break;
+        }
       } catch {
         // ignore malformed lines
       }
     }
   }
 
-  return accumulated;
+  if (buffer.trim()) {
+    try {
+      const parsed = JSON.parse(buffer.trim()) as { message?: { content?: string }; done?: boolean };
+      const token  = parsed.message?.content ?? "";
+      if (token) {
+        accumulated += token;
+        onChunk(token);
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+
+  // Strip markdown code fences if model wrapped the JSON
+  let result = accumulated.trim();
+  if (result.startsWith("```")) {
+    result = result.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  }
+
+  console.log("[ollama] full response:", result);
+  return result;
 }
