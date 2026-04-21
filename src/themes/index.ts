@@ -1,0 +1,308 @@
+export interface ThemeTokens {
+  background: string;
+  foreground: string;
+  primary: string;
+  "primary-foreground": string;
+  secondary: string;
+  "secondary-foreground": string;
+  muted: string;
+  "muted-foreground": string;
+  border: string;
+  ring: string;
+  error: string;
+  "error-foreground": string;
+  success: string;
+  "success-foreground": string;
+  warning: string;
+  "warning-foreground": string;
+  info: string;
+  "info-foreground": string;
+}
+
+export interface Theme {
+  name: string;
+  /** Colors shown as swatches in the theme picker */
+  palette: string[];
+  light: ThemeTokens;
+  dark: ThemeTokens;
+}
+
+export const themes: Record<string, Theme> = {
+  pluto: {
+    name: "Pluto",
+    // deep rust-black → atmospheric blue haze → copper rust → pale nitrogen ice → cream heart
+    palette: ["#120a08", "#5878a8", "#c07040", "#e8d4a8", "#f2e8d8"],
+    dark: {
+      background:             "#120a08",
+      foreground:             "#e8d4a8",
+      primary:                "#1c0e0a",
+      "primary-foreground":   "#e8d4a8",
+      secondary:              "#301808",
+      "secondary-foreground": "#e8d4a8",
+      muted:                  "#1c0e0a",
+      "muted-foreground":     "#9a6438",
+      border:                 "#221008",
+      ring:                   "#5878a8",
+      error:                  "#c04040",
+      "error-foreground":     "#e8d4a8",
+      success:                "#488858",
+      "success-foreground":   "#120a08",
+      warning:                "#c07040",
+      "warning-foreground":   "#120a08",
+      info:                   "#5878a8",
+      "info-foreground":      "#120a08",
+    },
+    light: {
+      background:             "#f2e8d8",
+      foreground:             "#2a1208",
+      primary:                "#e8dac8",
+      "primary-foreground":   "#2a1208",
+      secondary:              "#d8c4a8",
+      "secondary-foreground": "#2a1208",
+      muted:                  "#e8dac8",
+      "muted-foreground":     "#8a5830",
+      border:                 "#c8a878",
+      ring:                   "#5878a8",
+      error:                  "#983030",
+      "error-foreground":     "#f2e8d8",
+      success:                "#386848",
+      "success-foreground":   "#f2e8d8",
+      warning:                "#986020",
+      "warning-foreground":   "#f2e8d8",
+      info:                   "#385890",
+      "info-foreground":      "#f2e8d8",
+    },
+  },
+  moon: {
+    name: "Moon",
+    palette: ["#0e1018", "#8090c8", "#a0b0d0", "#d4ddf0", "#f0f2f8"],
+    dark: {
+      background:             "#0e1018",
+      foreground:             "#d8e2f4",
+      primary:                "#141828",
+      "primary-foreground":   "#d8e2f4",
+      secondary:              "#1e2840",
+      "secondary-foreground": "#d8e2f4",
+      muted:                  "#141828",
+      "muted-foreground":     "#6878a0",
+      border:                 "#182034",
+      ring:                   "#8090c8",
+      error:                  "#c06070",
+      "error-foreground":     "#d8e2f4",
+      success:                "#509878",
+      "success-foreground":   "#0e1018",
+      warning:                "#a09040",
+      "warning-foreground":   "#0e1018",
+      info:                   "#5888c8",
+      "info-foreground":      "#0e1018",
+    },
+    light: {
+      background:             "#f0f2f8",
+      foreground:             "#1a1e2c",
+      primary:                "#e4e8f4",
+      "primary-foreground":   "#1a1e2c",
+      secondary:              "#ccd4e8",
+      "secondary-foreground": "#1a1e2c",
+      muted:                  "#e4e8f4",
+      "muted-foreground":     "#6070a0",
+      border:                 "#b8c4e0",
+      ring:                   "#4a5ea0",
+      error:                  "#904050",
+      "error-foreground":     "#f0f2f8",
+      success:                "#307858",
+      "success-foreground":   "#f0f2f8",
+      warning:                "#806820",
+      "warning-foreground":   "#f0f2f8",
+      info:                   "#2858a8",
+      "info-foreground":      "#f0f2f8",
+    },
+  },
+  "mother-tree": {
+    name: "Mother Tree",
+    palette: ["#0e1410", "#b89428", "#4a7034", "#c8d4b8", "#e8ede0"],
+    dark: {
+      background:             "#0e1410",
+      foreground:             "#c8d8a8",
+      primary:                "#141c10",
+      "primary-foreground":   "#c8d8a8",
+      secondary:              "#1e2c18",
+      "secondary-foreground": "#c8d8a8",
+      muted:                  "#141c10",
+      "muted-foreground":     "#7a9860",
+      border:                 "#182014",
+      ring:                   "#b89428",
+      error:                  "#c05050",
+      "error-foreground":     "#c8d8a8",
+      success:                "#4a9458",
+      "success-foreground":   "#0e1410",
+      warning:                "#b89428",
+      "warning-foreground":   "#0e1410",
+      info:                   "#4a8890",
+      "info-foreground":      "#0e1410",
+    },
+    light: {
+      background:             "#e8ede0",
+      foreground:             "#1a2010",
+      primary:                "#dde5d0",
+      "primary-foreground":   "#1a2010",
+      secondary:              "#c8d4b8",
+      "secondary-foreground": "#1a2010",
+      muted:                  "#dde5d0",
+      "muted-foreground":     "#5a7045",
+      border:                 "#b8c8a4",
+      ring:                   "#7a9828",
+      error:                  "#904030",
+      "error-foreground":     "#e8ede0",
+      success:                "#3a7040",
+      "success-foreground":   "#e8ede0",
+      warning:                "#907820",
+      "warning-foreground":   "#e8ede0",
+      info:                   "#306878",
+      "info-foreground":      "#e8ede0",
+    },
+  },
+  owl: {
+    name: "Owl",
+    palette: ["#141210", "#c49428", "#c8a870", "#e6dcc8", "#f0e8d8"],
+    dark: {
+      background:             "#141210",
+      foreground:             "#e8d8b0",
+      primary:                "#1c1810",
+      "primary-foreground":   "#e8d8b0",
+      secondary:              "#2e2616",
+      "secondary-foreground": "#e8d8b0",
+      muted:                  "#1c1810",
+      "muted-foreground":     "#9a8858",
+      border:                 "#241e10",
+      ring:                   "#c49428",
+      error:                  "#c85858",
+      "error-foreground":     "#e8d8b0",
+      success:                "#5a9460",
+      "success-foreground":   "#141210",
+      warning:                "#c49428",
+      "warning-foreground":   "#141210",
+      info:                   "#5a8aac",
+      "info-foreground":      "#141210",
+    },
+    light: {
+      background:             "#f0e8d8",
+      foreground:             "#241c10",
+      primary:                "#e6dcc8",
+      "primary-foreground":   "#241c10",
+      secondary:              "#d4c4a8",
+      "secondary-foreground": "#241c10",
+      muted:                  "#e6dcc8",
+      "muted-foreground":     "#7a6848",
+      border:                 "#c4ae88",
+      ring:                   "#b88820",
+      error:                  "#a83030",
+      "error-foreground":     "#f0e8d8",
+      success:                "#3c6e44",
+      "success-foreground":   "#f0e8d8",
+      warning:                "#a87818",
+      "warning-foreground":   "#f0e8d8",
+      info:                   "#346090",
+      "info-foreground":      "#f0e8d8",
+    },
+  },
+  dawn: {
+    name: "Dawn",
+    palette: ["#18141e", "#d06848", "#d09088", "#f2d4bc", "#ede0d0"],
+    dark: {
+      background:             "#18141e",
+      foreground:             "#f2d4bc",
+      primary:                "#231826",
+      "primary-foreground":   "#f2d4bc",
+      secondary:              "#3c2438",
+      "secondary-foreground": "#f2d4bc",
+      muted:                  "#231826",
+      "muted-foreground":     "#c08898",
+      border:                 "#2e1c2c",
+      ring:                   "#d06848",
+      error:                  "#e06060",
+      "error-foreground":     "#f2d4bc",
+      success:                "#5a9e70",
+      "success-foreground":   "#18141e",
+      warning:                "#d4904a",
+      "warning-foreground":   "#18141e",
+      info:                   "#6a9ec4",
+      "info-foreground":      "#18141e",
+    },
+    light: {
+      background:             "#ede0d0",
+      foreground:             "#2c1c14",
+      primary:                "#e2d0bc",
+      "primary-foreground":   "#2c1c14",
+      secondary:              "#d0b89e",
+      "secondary-foreground": "#2c1c14",
+      muted:                  "#e2d0bc",
+      "muted-foreground":     "#8a6455",
+      border:                 "#c4a890",
+      ring:                   "#c46040",
+      error:                  "#b83c3c",
+      "error-foreground":     "#ede0d0",
+      success:                "#427055",
+      "success-foreground":   "#ede0d0",
+      warning:                "#b87028",
+      "warning-foreground":   "#ede0d0",
+      info:                   "#3868a0",
+      "info-foreground":      "#ede0d0",
+    },
+  },
+  raven: {
+    name: "Raven",
+    palette: ["#1e2130", "#272c3f", "#343b58", "#717a9c", "#ced2df"],
+    dark: {
+      background:             "#1e2130",
+      foreground:             "#ced2df",
+      primary:                "#272c3f",
+      "primary-foreground":   "#ced2df",
+      secondary:              "#343b58",
+      "secondary-foreground": "#ced2df",
+      muted:                  "#272c3f",
+      "muted-foreground":     "#717a9c",
+      border:                 "#2e3450",
+      ring:                   "#5b6a9e",
+      error:                  "#e05c6a",
+      "error-foreground":     "#f0f1f4",
+      success:                "#4a9e78",
+      "success-foreground":   "#0f1117",
+      warning:                "#d4924a",
+      "warning-foreground":   "#0f1117",
+      info:                   "#5a8ec4",
+      "info-foreground":      "#0f1117",
+    },
+    light: {
+      background:             "#f2f3f6",
+      foreground:             "#1c1f2b",
+      primary:                "#e2e4ec",
+      "primary-foreground":   "#1c1f2b",
+      secondary:              "#c8cbda",
+      "secondary-foreground": "#1c1f2b",
+      muted:                  "#e2e4ec",
+      "muted-foreground":     "#636a87",
+      border:                 "#c8cbda",
+      ring:                   "#5b6a9e",
+      error:                  "#c0424f",
+      "error-foreground":     "#f2f3f6",
+      success:                "#3a8060",
+      "success-foreground":   "#f2f3f6",
+      warning:                "#c07830",
+      "warning-foreground":   "#f2f3f6",
+      info:                   "#3a6fa8",
+      "info-foreground":      "#f2f3f6",
+    },
+  },
+};
+
+export type ColorMode = "light" | "dark";
+
+export function applyTheme(themeKey: string, mode: ColorMode) {
+  const theme = themes[themeKey];
+  if (!theme) return;
+  const tokens = theme[mode] ?? theme.dark;
+  const root = document.documentElement;
+  for (const [token, value] of Object.entries(tokens)) {
+    root.style.setProperty(`--${token}`, value);
+  }
+}
