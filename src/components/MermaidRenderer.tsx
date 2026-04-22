@@ -37,7 +37,7 @@ function toMermaidJs(chart: ChartGraph): string {
     .join("\n");
 }
 
-function useMermaidSvg(chart: ChartGraph | null, isDark: boolean): string {
+function useMermaidSvg(chart: ChartGraph | null, isDark: boolean, theme: string): string {
   const [svg, setSvg] = useState("");
 
   useEffect(() => {
@@ -52,9 +52,44 @@ function useMermaidSvg(chart: ChartGraph | null, isDark: boolean): string {
       const text = toMermaidJs(chart);
       const id   = `tf-mermaid-${++uid}`;
 
+      const getVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
       mermaid.initialize({
         startOnLoad: false,
-        theme: isDark ? "dark" : "neutral",
+        theme: "base",
+        themeVariables: {
+          background: getVar('--background'),
+          primaryColor: getVar('--primary'),
+          primaryTextColor: getVar('--foreground'),
+          primaryBorderColor: getVar('--border'),
+          lineColor: getVar('--border'),
+          secondaryColor: getVar('--secondary'),
+          tertiaryColor: getVar('--background'),
+          nodeTextColor: getVar('--foreground'),
+          fontFamily: "inherit",
+        },
+        themeCSS: `
+          .node rect, .node polygon, .node circle, .node ellipse, .node path {
+            fill: var(--primary) !important;
+            stroke: var(--border) !important;
+            stroke-width: 1.5px !important;
+          }
+          .node .label {
+            color: var(--foreground) !important;
+          }
+          .edgePath .path {
+            stroke: var(--border) !important;
+            stroke-width: 1.5px !important;
+          }
+          .edgeLabel {
+            background-color: var(--background) !important;
+            color: var(--foreground) !important;
+          }
+          .marker {
+            fill: var(--border) !important;
+            stroke: var(--border) !important;
+          }
+        `,
         flowchart: { curve: "basis", padding: 20, htmlLabels: true },
         securityLevel: "loose",
       });
@@ -72,7 +107,7 @@ function useMermaidSvg(chart: ChartGraph | null, isDark: boolean): string {
     }, 300);
 
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [chart, isDark]);
+  }, [chart, isDark, theme]);
 
   return svg;
 }
@@ -116,11 +151,11 @@ interface MermaidRendererProps {
 }
 
 export function MermaidRenderer({ chart }: MermaidRendererProps) {
-  const { colorMode } = useSettingsStore();
+  const { theme, colorMode } = useSettingsStore();
   const isDark = colorMode === "dark";
   const { isStreaming } = useStreamingStore();
 
-  const svg = useMermaidSvg(chart, isDark);
+  const svg = useMermaidSvg(chart, isDark, theme);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [vp, setVp]  = useState<Viewport>({ x: 40, y: 40, scale: 1 });
@@ -135,12 +170,38 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
     const rect = containerRef.current.getBoundingClientRect();
 
     if (isStreaming) {
-      // Scroll to the bottom of the SVG (where new nodes appear) at a comfortable zoom.
-      const scale = Math.min((rect.width * 0.8) / size.w, 0.85, 1.2);
+      let targetX = size.w / 2;
+      let targetY = size.h;
+
+      // Find the bottom-most node to follow its exact coordinates
+      const nodes = containerRef.current.querySelectorAll(".node");
+      if (nodes.length > 0) {
+        let maxY = -Infinity;
+        for (const node of Array.from(nodes)) {
+          const transform = node.getAttribute("transform");
+          if (transform) {
+            const match = transform.match(/translate\(([\d.-]+)[,\s]+([\d.-]+)\)/);
+            if (match) {
+              const nx = parseFloat(match[1]);
+              const ny = parseFloat(match[2]);
+              if (ny > maxY) {
+                maxY = ny;
+                targetX = nx;
+              }
+            }
+          }
+        }
+        if (maxY !== -Infinity) {
+          targetY = maxY;
+        }
+      }
+
+      // Scroll to the latest node at a comfortable zoom
+      const scale = 0.75;
       setVp({
         scale,
-        x: (rect.width - size.w * scale) / 2,
-        y: rect.height * 0.65 - size.h * scale,
+        x: rect.width / 2 - targetX * scale,
+        y: rect.height * 0.65 - targetY * scale,
       });
     } else {
       setVp(fitViewport(size.w, size.h, rect.width, rect.height));
