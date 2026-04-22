@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import mermaid from "mermaid";
 import type { ChartGraph } from "../lib/chart/types";
 import { chartToMermaid } from "../lib/chart/mermaid";
@@ -58,36 +58,36 @@ function useMermaidSvg(chart: ChartGraph | null, isDark: boolean, theme: string)
         startOnLoad: false,
         theme: "base",
         themeVariables: {
-          background: getVar('--background'),
-          primaryColor: getVar('--primary'),
-          primaryTextColor: getVar('--foreground'),
-          primaryBorderColor: getVar('--border'),
-          lineColor: getVar('--border'),
-          secondaryColor: getVar('--secondary'),
-          tertiaryColor: getVar('--background'),
-          nodeTextColor: getVar('--foreground'),
+          background: getVar('--chart-bg'),
+          primaryColor: getVar('--chart-node-bg'),
+          primaryTextColor: getVar('--chart-text'),
+          primaryBorderColor: getVar('--chart-node-border'),
+          lineColor: getVar('--chart-edge'),
+          secondaryColor: getVar('--chart-bg'),
+          tertiaryColor: getVar('--chart-bg'),
+          nodeTextColor: getVar('--chart-text'),
           fontFamily: "inherit",
         },
         themeCSS: `
           .node rect, .node polygon, .node circle, .node ellipse, .node path {
-            fill: var(--primary) !important;
-            stroke: var(--border) !important;
+            fill: var(--chart-node-bg) !important;
+            stroke: var(--chart-node-border) !important;
             stroke-width: 1.5px !important;
           }
           .node .label {
-            color: var(--foreground) !important;
+            color: var(--chart-text) !important;
           }
           .edgePath .path {
-            stroke: var(--border) !important;
+            stroke: var(--chart-edge) !important;
             stroke-width: 1.5px !important;
           }
           .edgeLabel {
-            background-color: var(--background) !important;
-            color: var(--foreground) !important;
+            background-color: var(--chart-bg) !important;
+            color: var(--chart-text) !important;
           }
           .marker {
-            fill: var(--border) !important;
-            stroke: var(--border) !important;
+            fill: var(--chart-edge) !important;
+            stroke: var(--chart-edge) !important;
           }
         `,
         flowchart: { curve: "basis", padding: 20, htmlLabels: true },
@@ -162,11 +162,11 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
   const vpRef        = useRef(vp);
   vpRef.current = vp;
 
+  const size = useMemo(() => parseSvgSize(svg), [svg]);
+
   // Follow latest content during streaming; fit-to-view when done.
   useEffect(() => {
-    if (!svg || !containerRef.current) return;
-    const size = parseSvgSize(svg);
-    if (!size) return;
+    if (!svg || !containerRef.current || !size) return;
     const rect = containerRef.current.getBoundingClientRect();
 
     if (isStreaming) {
@@ -250,19 +250,17 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
   }, []);
 
   const fitView = useCallback(() => {
-    if (!svg || !containerRef.current) return;
-    const size = parseSvgSize(svg);
-    if (!size) return;
+    if (!svg || !containerRef.current || !size) return;
     const rect = containerRef.current.getBoundingClientRect();
     setVp(fitViewport(size.w, size.h, rect.width, rect.height));
-  }, [svg]);
+  }, [svg, size]);
 
   // ── Render ─────────────────────────────────────────────────
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-hidden bg-background select-none"
+      className="relative w-full h-full overflow-hidden bg-chart-bg select-none"
       style={{ cursor: "grab" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -270,15 +268,17 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
       onPointerLeave={onPointerUp}
       onWheel={onWheel}
     >
-      {svg && (
+      {svg && size && (
         <div
           style={{
             position: "absolute",
             transformOrigin: "0 0",
             transform: `translate(${vp.x}px, ${vp.y}px) scale(${vp.scale})`,
+            width: `${size.w}px`,
+            height: `${size.h}px`,
           }}
           // mermaid's SVG uses inline styles; override background so it respects our canvas
-          className="[&_svg]:bg-transparent [&_svg]:max-w-none"
+          className="[&_svg]:w-full [&_svg]:h-full [&_svg]:bg-transparent [&_svg]:max-w-none"
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       )}

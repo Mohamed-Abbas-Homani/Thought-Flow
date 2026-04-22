@@ -17,6 +17,11 @@ export interface ThemeTokens {
   "warning-foreground": string;
   info: string;
   "info-foreground": string;
+  "chart-bg": string;
+  "chart-node-bg": string;
+  "chart-node-border": string;
+  "chart-edge": string;
+  "chart-text": string;
 }
 
 export interface Theme {
@@ -51,6 +56,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#120a08",
       info:                   "#5878a8",
       "info-foreground":      "#120a08",
+      "chart-bg":             "#0a0504",
+      "chart-node-bg":        "#301808",
+      "chart-node-border":    "#c07040",
+      "chart-edge":           "#9a6438",
+      "chart-text":           "#e8d4a8",
     },
     light: {
       background:             "#f2e8d8",
@@ -71,6 +81,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#f2e8d8",
       info:                   "#385890",
       "info-foreground":      "#f2e8d8",
+      "chart-bg":             "#e8d6c8",
+      "chart-node-bg":        "#f6f0e6",
+      "chart-node-border":    "#c8a878",
+      "chart-edge":           "#8a5830",
+      "chart-text":           "#2a1208",
     },
   },
   moon: {
@@ -95,6 +110,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#0e1018",
       info:                   "#5888c8",
       "info-foreground":      "#0e1018",
+      "chart-bg":             "#08090e",
+      "chart-node-bg":        "#1e2840",
+      "chart-node-border":    "#8090c8",
+      "chart-edge":           "#6878a0",
+      "chart-text":           "#d8e2f4",
     },
     light: {
       background:             "#f0f2f8",
@@ -115,6 +135,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#f0f2f8",
       info:                   "#2858a8",
       "info-foreground":      "#f0f2f8",
+      "chart-bg":             "#e4e8f4",
+      "chart-node-bg":        "#ffffff",
+      "chart-node-border":    "#4a5ea0",
+      "chart-edge":           "#6070a0",
+      "chart-text":           "#1a1e2c",
     },
   },
   "mother-tree": {
@@ -139,6 +164,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#0e1410",
       info:                   "#4a8890",
       "info-foreground":      "#0e1410",
+      "chart-bg":             "#080c09",
+      "chart-node-bg":        "#1e2c18",
+      "chart-node-border":    "#b89428",
+      "chart-edge":           "#7a9860",
+      "chart-text":           "#c8d8a8",
     },
     light: {
       background:             "#e8ede0",
@@ -159,6 +189,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#e8ede0",
       info:                   "#306878",
       "info-foreground":      "#e8ede0",
+      "chart-bg":             "#dce2d2",
+      "chart-node-bg":        "#f2f5ee",
+      "chart-node-border":    "#7a9828",
+      "chart-edge":           "#5a7045",
+      "chart-text":           "#1a2010",
     },
   },
   owl: {
@@ -183,6 +218,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#141210",
       info:                   "#5a8aac",
       "info-foreground":      "#141210",
+      "chart-bg":             "#0c0a08",
+      "chart-node-bg":        "#2e2616",
+      "chart-node-border":    "#c49428",
+      "chart-edge":           "#9a8858",
+      "chart-text":           "#e8d8b0",
     },
     light: {
       background:             "#f0e8d8",
@@ -203,6 +243,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#f0e8d8",
       info:                   "#346090",
       "info-foreground":      "#f0e8d8",
+      "chart-bg":             "#e8dcc8",
+      "chart-node-bg":        "#f8f4ec",
+      "chart-node-border":    "#b88820",
+      "chart-edge":           "#7a6848",
+      "chart-text":           "#241c10",
     },
   },
   dawn: {
@@ -227,6 +272,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#18141e",
       info:                   "#6a9ec4",
       "info-foreground":      "#18141e",
+      "chart-bg":             "#100d14",
+      "chart-node-bg":        "#3c2438",
+      "chart-node-border":    "#d06848",
+      "chart-edge":           "#c08898",
+      "chart-text":           "#f2d4bc",
     },
     light: {
       background:             "#ede0d0",
@@ -247,6 +297,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#ede0d0",
       info:                   "#3868a0",
       "info-foreground":      "#ede0d0",
+      "chart-bg":             "#e2d2c1",
+      "chart-node-bg":        "#f4ede6",
+      "chart-node-border":    "#c46040",
+      "chart-edge":           "#8a6455",
+      "chart-text":           "#2c1c14",
     },
   },
   raven: {
@@ -271,6 +326,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#0f1117",
       info:                   "#5a8ec4",
       "info-foreground":      "#0f1117",
+      "chart-bg":             "#161824",
+      "chart-node-bg":        "#343b58",
+      "chart-node-border":    "#5b6a9e",
+      "chart-edge":           "#717a9c",
+      "chart-text":           "#ced2df",
     },
     light: {
       background:             "#f2f3f6",
@@ -291,6 +351,11 @@ export const themes: Record<string, Theme> = {
       "warning-foreground":   "#f2f3f6",
       info:                   "#3a6fa8",
       "info-foreground":      "#f2f3f6",
+      "chart-bg":             "#e2e4ec",
+      "chart-node-bg":        "#ffffff",
+      "chart-node-border":    "#5b6a9e",
+      "chart-edge":           "#636a87",
+      "chart-text":           "#1c1f2b",
     },
   },
 };

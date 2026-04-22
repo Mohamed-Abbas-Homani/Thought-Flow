@@ -135,10 +135,10 @@ function Stadium({ w, h, className }: ShapeProps) {
 function nodeClass(type: string): string {
   switch (type) {
     case "start":
-    case "end":       return "fill-secondary stroke-ring";
-    case "decision":  return "fill-transparent stroke-ring";
-    case "io":        return "fill-primary stroke-border";
-    default:          return "fill-primary stroke-border";
+    case "end":       return "fill-secondary stroke-chart-node-border";
+    case "decision":  return "fill-chart-bg stroke-chart-node-border";
+    case "io":        return "fill-chart-node-bg stroke-chart-node-border";
+    default:          return "fill-chart-node-bg stroke-chart-node-border";
   }
 }
 
@@ -146,8 +146,8 @@ function textClass(type: string): string {
   switch (type) {
     case "start":
     case "end":      return "text-foreground";
-    case "decision": return "text-[color:var(--ring)]";
-    default:         return "text-foreground/80";
+    case "decision": return "text-[color:var(--chart-node-border)]";
+    default:         return "text-chart-text";
   }
 }
 

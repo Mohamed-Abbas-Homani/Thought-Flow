@@ -21,6 +21,13 @@
   --info:                  #5a8ec4;
   --info-foreground:       #0f1117;
 
+  /* Chart Specific Colors defaults (Raven dark) */
+  --chart-bg:              #161824;
+  --chart-node-bg:         #343b58;
+  --chart-node-border:     #5b6a9e;
+  --chart-edge:            #717a9c;
+  --chart-text:            #ced2df;
+
   /* Non-color design tokens */
   --radius: 0.375rem;
 }
@@ -44,6 +51,12 @@
   --color-warning-foreground:   var(--warning-foreground);
   --color-info:                 var(--info);
   --color-info-foreground:      var(--info-foreground);
+
+  --color-chart-bg:             var(--chart-bg);
+  --color-chart-node-bg:        var(--chart-node-bg);
+  --color-chart-node-border:    var(--chart-node-border);
+  --color-chart-edge:           var(--chart-edge);
+  --color-chart-text:           var(--chart-text);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);

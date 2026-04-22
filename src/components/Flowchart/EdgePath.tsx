@@ -74,7 +74,7 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
   const { strokeDasharray, strokeWidth } = strokeProps(style);
   const mid = midpoint(points);
 
-  const stroke        = isBack ? "var(--muted-foreground)" : "var(--border)";
+  const stroke        = "var(--chart-edge)";
   const strokeOpacity = isBack ? 0.6 : 1;
 
   return (
@@ -106,15 +106,15 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
             x={-label.length * 3.5 - 4} y={-9}
             width={label.length * 7 + 8} height={18}
             rx={3}
-            fill="var(--background)"
-            stroke="var(--border)"
+            fill="var(--chart-bg)"
+            stroke="var(--chart-node-border)"
             strokeWidth={0.5}
           />
           <text
             textAnchor="middle"
             dominantBaseline="central"
             fontSize={10}
-            fill="var(--muted-foreground)"
+            fill="var(--chart-text)"
             style={{ userSelect: "none", pointerEvents: "none" }}
           >
             {label}

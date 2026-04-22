@@ -141,7 +141,7 @@ export function Flowchart({ chart, error }: FlowchartProps) {
   const hasContent = layout && layout.nodes.length > 0;
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-background select-none">
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-chart-bg select-none">
       <svg
         className="w-full h-full"
         style={{ cursor: "grab" }}
