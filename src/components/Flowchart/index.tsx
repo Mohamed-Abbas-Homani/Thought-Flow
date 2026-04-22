@@ -3,6 +3,7 @@ import type { ChartGraph } from "../../lib/chart/types";
 import { computeLayout } from "./layout";
 import { NodeShape } from "./NodeShape";
 import { EdgePath } from "./EdgePath";
+import { useStreamingStore } from "../../store/streamingStore";
 
 // ── Viewport state ────────────────────────────────────────────
 
@@ -45,22 +46,46 @@ export function Flowchart({ chart, error }: FlowchartProps) {
   const vpRef        = useRef(vp);
   vpRef.current = vp;
 
+  const { isStreaming } = useStreamingStore();
+
   const layout = useMemo(
     () => (chart ? computeLayout(chart) : null),
     [chart]
   );
 
-  // Auto fit-to-view only on first build (0 → N nodes).
-  // Flowchart receives key={activeTabPath} in App so it remounts on tab switch.
   const prevNodeCount = useRef(0);
+  const prevEdgeCount = useRef(0);
+  const prevHeight    = useRef(0);
+
   useEffect(() => {
     if (!layout || !containerRef.current) return;
-    if (prevNodeCount.current === 0 && layout.nodes.length > 0) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setVp(fitViewport(layout.width, layout.height, rect.width, rect.height));
+    const rect = containerRef.current.getBoundingClientRect();
+
+    if (isStreaming && layout.nodes.length > 0) {
+      // During streaming: follow the bottom-most node (latest generated) at a
+      // comfortable zoom so the user can see the chart being built in real time.
+      const lastNode = layout.nodes.reduce((a, b) => (a.y > b.y ? a : b));
+      const scale = 0.75;
+      setVp({
+        scale,
+        x: rect.width  / 2 - lastNode.x * scale,
+        y: rect.height * 0.65 - lastNode.y * scale,
+      });
+    } else {
+      // Not streaming: fit-to-view on first content or significant growth.
+      const firstNodes  = prevNodeCount.current === 0 && layout.nodes.length > 0;
+      const firstEdges  = prevEdgeCount.current === 0 && layout.edges.length > 0;
+      const biggerChart = layout.height > prevHeight.current * 1.4 && prevHeight.current > 0;
+      if (firstNodes || firstEdges || biggerChart) {
+        setVp(fitViewport(layout.width, layout.height, rect.width, rect.height));
+        console.log(`[layout] fit-to-view triggered — ${layout.nodes.length} nodes, ${layout.edges.length} edges`);
+      }
     }
+
     prevNodeCount.current = layout.nodes.length;
-  }, [layout]);
+    prevEdgeCount.current = layout.edges.length;
+    prevHeight.current    = layout.height;
+  }, [layout, isStreaming]);
 
   // ── Pan ──────────────────────────────────────────────────
 

@@ -49,7 +49,7 @@ Every file is a chat session. Files are stored in `~/Documents/thought-flow/` wi
 - Part 2: `ChartGraph` JSON (absent/empty on new files)
 - Delimiter: `\n[+]\n`
 
-Clicking a file in the sidebar opens it as a tab. The canvas shows the chart; the chat panel shows the conversation. Sending a message streams to Ollama which returns a `ChartGraph`; the canvas updates and the file is auto-saved.
+Clicking a file in the sidebar opens it as a tab. The canvas shows the chart; the chat panel shows the conversation. Sending a message streams to Ollama which returns Mermaid; the canvas updates and the file is auto-saved.
 
 ## State Management
 
@@ -89,19 +89,60 @@ Both panels use the same pointer pattern: `onMouseDown` on a 4px edge handle →
 - `ChartEdge`: `from`, `to`, `type`, `label`, `style`, `metadata`
 
 ### Flowchart renderer (`src/components/Flowchart/`)
-Ported from mkdgms with UIG→ChartGraph rename:
-- `layout.ts` — Sugiyama hierarchical layout (BFS rank assignment, barycenter sort, pixel coordinate placement)
+- `layout.ts` — Sugiyama hierarchical layout (BFS rank assignment, barycenter sort, pixel coordinate placement). Logs `[layout] computeLayout`, `[layout] ranks`, `[layout] fit-to-view triggered`.
 - `NodeShape.tsx` — 10 SVG shapes (rounded-rect, rect, diamond, parallelogram, hexagon, subroutine, cylinder, double-circle, flag, stadium)
-- `EdgePath.tsx` — Catmull-Rom → Bézier curves with arrowheads; back edges (loop/jump) routed around the left margin
-- `index.tsx` — pan (pointer capture), zoom (wheel toward cursor), fit-to-view on first render; `key={activeTab.path}` in App forces remount on tab switch
+- `EdgePath.tsx` — Catmull-Rom → Bézier curves with arrowheads; back edges (type=loop/jump) routed around the left margin
+- `index.tsx` — pan (pointer capture), zoom (wheel toward cursor). Auto-fits when: first nodes arrive, first edges arrive (important: nodes can precede edges in live preview), or chart height grows >40%.
 
 ## Ollama Integration (`src/lib/ollama.ts`)
 
-- Model: `llama3.1:8b` at `http://localhost:11434/api/chat` with `stream: true`
-- Streams NDJSON, accumulates tokens, calls `onChunk` per token
-- System prompt instructs the model to respond ONLY with a valid `ChartGraph` JSON
-- Logs input messages and full response to console (`[ollama] input messages:` / `[ollama] full response:`)
-- On stream end, `ChatPanel` tries `JSON.parse` of the full response — if valid `ChartGraph`, calls `setChart`; then saves the file
+- Model: `llama3.1:8b` at `http://localhost:11434/api/chat` with `stream: true`, `temperature: 0`
+- Streams NDJSON (buffer-split-safe: accumulate into `buffer`, only process complete lines via `lines.pop()`)
+- Two system prompts: `FLOWCHART_SYSTEM_PROMPT` (new chart) and `buildPatcherPrompt(chart)` (edit existing)
+- Both prompts request **Mermaid** output, not JSON — ~10× fewer tokens than JSON for the same chart
+- Logs: `[ollama] mode=generator|patcher`, `[ollama] input messages:`, `[ollama] full response:`
+
+## Chart Generation Pipeline (`src/lib/chart/`)
+
+The model outputs Mermaid; the pipeline converts it to `ChartGraph`:
+
+```
+Ollama stream → (Enhancement 1) line-by-line Mermaid parse → PartialChart → setChart (live)
+                                                                                    ↓
+Ollama done  → extract Mermaid (strip code fences) → mermaidToChart → (Enhancement 2) validateAndFix → setChart (final)
+```
+
+### `mermaid.ts` — Mermaid ↔ ChartGraph
+- `parseMermaidLine(line)` — regex-based, handles node defs, edges (chained), labels, all 10 shapes
+- `mermaidToChart(text)` — full parse; placeholder nodes overwritten when real definition arrives (`existing.text === n.id` guard)
+- `chartToMermaid(chart)` — used by patcher prompt to give the model the current chart as compact Mermaid context
+- Logs: `[mermaid] line "..." → N node(s), N edge(s)`
+
+### `streamParse.ts` — Incremental parse during streaming
+- `parseStreamingChart(accumulated)` — re-parses full accumulated text each call, returns `PartialChart | null`
+- Same placeholder-overwrite guard as `mermaid.ts`
+- Used by live preview in `ChatPanel` — only triggers `setChart` when node or edge count increases
+
+### `validate.ts` — Structural validation + auto-fix
+- `validateAndFix(chart)` — run after every final parse before `setChart`
+- Fixes: broken edge refs (remove), duplicate node IDs (suffix _2), missing start node (promote), missing end node (promote)
+- Warns: decision nodes with <2 outgoing edges, orphaned nodes
+- All fixes logged: `[validate] ...`
+
+### Pipeline logs to watch in console
+| Tag | Meaning |
+|-----|---------|
+| `[pipeline] starting generation` | New message sent |
+| `[pipeline] final parse` | Stream ended, parsing full Mermaid |
+| `[pipeline] validate+fix: clean` | Chart is structurally valid |
+| `[pipeline] chart mode: patch` | Editing an existing chart |
+| `[pipeline] response does not look like Mermaid` | Model output unexpected |
+| `[live] +N node(s), +N edge(s)` | Live preview updating chart |
+| `[mermaid] line "..."` | Each parsed line during final parse |
+| `[layout] computeLayout` | Layout engine input |
+| `[layout] ranks: n1=r0, n2=r1, ...` | BFS rank assignment result |
+| `[layout] fit-to-view triggered` | Viewport auto-refitted |
+| `[ollama] mode=generator\|patcher` | Which system prompt was used |
 
 ## Sidebar / File Management
 
