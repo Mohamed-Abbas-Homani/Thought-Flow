@@ -66,6 +66,22 @@ function inferType(shape: string, text: string): string {
   return SHAPE_TO_TYPE[shape] ?? "action";
 }
 
+function stripOuterQuotes(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+      return trimmed.slice(1, -1).trim();
+    }
+  }
+  return trimmed;
+}
+
+function mermaidText(text: string): string {
+  return `"${stripOuterQuotes(text).replace(/"/g, "'")}"`;
+}
+
 // ─── Edge encoding ────────────────────────────────────────────────────────────
 
 function edgeArrow(style: ChartEdge["style"]): string {
@@ -91,7 +107,7 @@ function parseInlineNode(segment: string): { id: string; text: string; shape: st
 
   for (const { open, close, shape } of NODE_PATTERNS) {
     if (rest.startsWith(open) && rest.endsWith(close)) {
-      const inner = rest.slice(open.length, rest.length - close.length).trim();
+      const inner = stripOuterQuotes(rest.slice(open.length, rest.length - close.length));
       return { id, text: inner, shape };
     }
   }
@@ -153,7 +169,7 @@ export function parseMermaidLine(line: string): LineResult {
     if (afterArrow.startsWith("|")) {
       const closePipe = afterArrow.indexOf("|", 1);
       if (closePipe !== -1) {
-        label = afterArrow.slice(1, closePipe);
+        label = stripOuterQuotes(afterArrow.slice(1, closePipe));
         rhs = afterArrow.slice(closePipe + 1).trim();
       }
     }
@@ -284,13 +300,13 @@ export function chartToMermaid(chart: ChartGraph): string {
   for (const node of chart.nodes) {
     const open  = SHAPE_OPEN[node.shape]  ?? "[";
     const close = SHAPE_CLOSE[node.shape] ?? "]";
-    const text  = node.text.replace(/"/g, "'"); // avoid breaking Mermaid string
+    const text  = mermaidText(node.text);
     lines.push(`${node.id}${open}${text}${close}`);
   }
 
   for (const edge of chart.edges) {
     const arrow = edgeArrow(edge.style);
-    const label = edge.label ? `|${edge.label}|` : "";
+    const label = edge.label ? `|${stripOuterQuotes(edge.label)}|` : "";
     lines.push(`${edge.from} ${arrow}${label} ${edge.to}`);
   }
 

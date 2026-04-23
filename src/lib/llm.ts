@@ -90,6 +90,33 @@ export async function streamLLM(
   throw new Error(`Unsupported provider: ${llmProvider}`);
 }
 
+export async function completeLLM(
+  systemPrompt: string,
+  messages: LLMMessage[],
+  signal?: AbortSignal
+): Promise<string> {
+  const allMessages = [
+    { role: "system", content: systemPrompt },
+    ...messages,
+  ];
+
+  const chunks: string[] = [];
+  const collect = (token: string) => chunks.push(token);
+  const { llmProvider, llmUrl, llmModel, llmApiKey } = useSettingsStore.getState();
+
+  if (llmProvider === "ollama") {
+    await streamOllama(llmUrl, llmModel, allMessages, collect, signal);
+  } else if (llmProvider === "openai") {
+    await streamOpenAI(llmUrl, llmModel, llmApiKey, allMessages, collect, signal);
+  } else if (llmProvider === "anthropic") {
+    await streamAnthropic(llmUrl, llmModel, llmApiKey, allMessages, collect, signal);
+  } else {
+    throw new Error(`Unsupported provider: ${llmProvider}`);
+  }
+
+  return chunks.join("").trim();
+}
+
 async function streamOllama(
   url: string,
   model: string,

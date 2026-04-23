@@ -108,6 +108,17 @@ function midpoint(pts: Point[]): Point {
   return pts[Math.floor(pts.length / 2)];
 }
 
+function stripOuterQuotes(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 // ── Stroke style ──────────────────────────────────────────────
 
 function strokeProps(style: LayoutEdge["style"]): { strokeDasharray?: string; strokeWidth: number; arrowSize: number } {
@@ -124,6 +135,7 @@ function strokeProps(style: LayoutEdge["style"]): { strokeDasharray?: string; st
 export function EdgePath({ edge }: { edge: LayoutEdge }) {
   const { points, style, label, isBack } = edge;
   if (points.length < 2) return null;
+  const displayLabel = label ? stripOuterQuotes(label) : "";
 
   const { strokeDasharray, strokeWidth, arrowSize } = strokeProps(style);
   const visiblePoints = style === "open" ? points : trimEnd(points, arrowSize * 0.72);
@@ -160,11 +172,11 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
           strokeLinejoin="round"
         />
       )}
-      {label && (
+      {displayLabel && (
         <g transform={`translate(${mid.x}, ${mid.y})`}>
           <rect
-            x={-label.length * 3.4 - 7} y={-10}
-            width={label.length * 6.8 + 14} height={20}
+            x={-displayLabel.length * 3.4 - 7} y={-10}
+            width={displayLabel.length * 6.8 + 14} height={20}
             rx={5}
             fill="var(--chart-bg)"
             stroke="var(--chart-node-border)"
@@ -178,7 +190,7 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
             fill="var(--chart-text)"
             style={{ userSelect: "none", pointerEvents: "none" }}
           >
-            {label}
+            {displayLabel}
           </text>
         </g>
       )}

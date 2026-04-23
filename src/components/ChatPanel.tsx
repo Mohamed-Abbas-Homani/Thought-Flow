@@ -5,6 +5,7 @@ import { streamLLM } from "../lib/llm";
 import { mermaidToChart } from "../lib/chart/mermaid";
 import { validateAndFix } from "../lib/chart/validate";
 import { parseStreamingChart, partialToGraph } from "../lib/chart/streamParse";
+import { generateQualityChart } from "../lib/chart/qualityPipeline";
 import { cn } from "@/lib/utils";
 import { useStreamingStore } from "../store/streamingStore";
 import { useSettingsStore } from "../store/settingsStore";
@@ -13,6 +14,7 @@ import { useLayoutStore } from "../store/layoutStore";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
+type GenerationMode = "speed" | "quality";
 
 export function ChatPanel() {
   const { tabs, activeTabPath, addMessage, setChart, saveTab } = useTabStore();
@@ -24,6 +26,7 @@ export function ChatPanel() {
   const [streaming, setStreaming]   = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [livePreview, setLivePreview] = useState(false);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
   
   const { llmModel, openSettings } = useSettingsStore();
 
@@ -114,7 +117,46 @@ export function ChatPanel() {
     setStreamingText("");
     abortRef.current = new AbortController();
 
-    console.log(`[pipeline] starting generation — live-preview=${livePreviewRef.current}, tab=${activeTabPath}`);
+    console.log(`[pipeline] starting generation — mode=${generationMode}, live-preview=${livePreviewRef.current}, tab=${activeTabPath}`);
+
+    if (generationMode === "quality") {
+      let assistantContent = "";
+      try {
+        const result = await generateQualityChart({
+          history,
+          userRequest: text,
+          currentChart: activeTab?.chart ?? null,
+          signal: abortRef.current.signal,
+          onProgress: (message) => {
+            setStreamingText(message);
+            bottomRef.current?.scrollIntoView({ behavior: "instant" });
+          },
+        });
+
+        console.log(`[quality] ${result.report}`);
+        setChart(activeTabPath, result.chart);
+        assistantContent = result.mermaid;
+      } catch (err: unknown) {
+        const isAbort = err instanceof Error && err.name === "AbortError";
+        if (isAbort) {
+          setStreaming(false);
+          setIsStreaming(false);
+          setStreamingText("");
+          return;
+        }
+        assistantContent = `[Quality mode failed: ${err instanceof Error ? err.message : String(err)}]`;
+      }
+
+      setStreaming(false);
+      setIsStreaming(false);
+      setStreamingText("");
+
+      const assistantMsg: ChatMessage = { role: "assistant", content: assistantContent, timestamp: Date.now() };
+      addMessage(activeTabPath, assistantMsg);
+      await saveTab(activeTabPath);
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
 
     let accumulated = "";
     let lastNodeCount = 0;
@@ -337,6 +379,25 @@ export function ChatPanel() {
               >
                 {llmModel}
               </button>
+
+              <div className="flex rounded-md border border-border overflow-hidden text-[10px]">
+                {(["speed", "quality"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    title={mode === "speed" ? "Fast streaming generation" : "Slower multi-step quality generation"}
+                    onClick={() => setGenerationMode(mode)}
+                    className={cn(
+                      "px-1.5 py-0.5 uppercase tracking-wide cursor-default transition-colors",
+                      generationMode === mode
+                        ? "bg-ring text-background"
+                        : "text-muted-foreground/45 hover:text-muted-foreground bg-transparent"
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <button

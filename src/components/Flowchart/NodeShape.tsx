@@ -22,8 +22,19 @@ function wrapText(text: string, maxW: number): string[] {
   return lines.slice(0, 3);
 }
 
+function stripOuterQuotes(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 function NodeText({ text, maxW, cx = 0, cy = 0 }: { text: string; maxW: number; cx?: number; cy?: number }) {
-  const lines  = wrapText(text, maxW);
+  const lines  = wrapText(stripOuterQuotes(text), maxW);
   const lh     = 16;
   const startY = cy - ((lines.length - 1) * lh) / 2;
   return (
