@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Send, Trash2, Eye, EyeOff } from "lucide-react";
+import { Send, Trash2 } from "lucide-react";
 import { useTabStore, type ChatMessage } from "../store/tabStore";
 import { streamLLM } from "../lib/llm";
 import { mermaidToChart } from "../lib/chart/mermaid";
@@ -25,7 +25,6 @@ export function ChatPanel() {
   const { setIsStreaming } = useStreamingStore();
   const [streaming, setStreaming]   = useState(false);
   const [streamingText, setStreamingText] = useState("");
-  const [livePreview, setLivePreview] = useState(false);
   const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
   
   const { llmModel, openSettings } = useSettingsStore();
@@ -39,9 +38,7 @@ export function ChatPanel() {
   const historyIndexRef = useRef(0);
 
   // Refs for stable access inside stream callbacks
-  const livePreviewRef   = useRef(livePreview);
   const activeTabPathRef = useRef(activeTabPath);
-  livePreviewRef.current   = livePreview;
   activeTabPathRef.current = activeTabPath;
 
   function resizeTextarea() {
@@ -117,7 +114,7 @@ export function ChatPanel() {
     setStreamingText("");
     abortRef.current = new AbortController();
 
-    console.log(`[pipeline] starting generation — mode=${generationMode}, live-preview=${livePreviewRef.current}, tab=${activeTabPath}`);
+    console.log(`[pipeline] starting generation — mode=${generationMode}, live-preview=true, tab=${activeTabPath}`);
 
     if (generationMode === "quality") {
       let assistantContent = "";
@@ -130,6 +127,9 @@ export function ChatPanel() {
           onProgress: (message) => {
             setStreamingText(message);
             bottomRef.current?.scrollIntoView({ behavior: "instant" });
+          },
+          onIntermediateChart: (chart) => {
+            setChart(activeTabPath, chart);
           },
         });
 
@@ -171,7 +171,7 @@ export function ChatPanel() {
           bottomRef.current?.scrollIntoView({ behavior: "instant" });
 
           // Enhancement 1: live progressive Mermaid parse (line-by-line streaming)
-          if (livePreviewRef.current && activeTabPathRef.current) {
+          if (activeTabPathRef.current) {
             const partial = parseStreamingChart(accumulated);
             if (partial) {
               const { nodes, edges } = partial;
@@ -359,18 +359,6 @@ export function ChatPanel() {
           />
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                title={livePreview ? "Live preview on" : "Live preview off"}
-                onClick={() => setLivePreview((v) => !v)}
-                className={cn(
-                  "p-1 rounded cursor-default transition-colors",
-                  livePreview ? "text-ring" : "text-muted-foreground/40 hover:text-muted-foreground"
-                )}
-              >
-                {livePreview ? <Eye size={14} /> : <EyeOff size={14} />}
-              </button>
-
               <button 
                 type="button"
                 onClick={() => openSettings("model")}
@@ -380,7 +368,7 @@ export function ChatPanel() {
                 {llmModel}
               </button>
 
-              <div className="flex rounded-md border border-border overflow-hidden text-[10px]">
+              <div className="flex rounded-md border border-border overflow-hidden text-[9px]">
                 {(["speed", "quality"] as const).map((mode) => (
                   <button
                     key={mode}
@@ -388,7 +376,7 @@ export function ChatPanel() {
                     title={mode === "speed" ? "Fast streaming generation" : "Slower multi-step quality generation"}
                     onClick={() => setGenerationMode(mode)}
                     className={cn(
-                      "px-1.5 py-0.5 uppercase tracking-wide cursor-default transition-colors",
+                      "px-1.25 py-[2px] uppercase tracking-wide cursor-default transition-colors leading-none",
                       generationMode === mode
                         ? "bg-ring text-background"
                         : "text-muted-foreground/45 hover:text-muted-foreground bg-transparent"

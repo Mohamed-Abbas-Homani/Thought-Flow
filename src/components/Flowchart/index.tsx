@@ -1,10 +1,13 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import type { ChartGraph } from "../../lib/chart/types";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { Clipboard, Download, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { chartToMermaid } from "../../lib/chart/mermaid";
+import { exportPdfFile, exportPngFile, exportSvgFile, getChartExportColors, sanitizeExportName, type ExportFormat } from "../../lib/chart/export";
 import { computeLayout } from "./layout";
 import { NodeShape } from "./NodeShape";
 import { EdgePath } from "./EdgePath";
 import { useStreamingStore } from "../../store/streamingStore";
-import { Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 
 // ── Viewport state ────────────────────────────────────────────
 
@@ -45,6 +48,9 @@ export function Flowchart({ chart, error }: FlowchartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [vp, setVp]  = useState<Viewport>({ x: 40, y: 40, scale: 1 });
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportState, setExportState] = useState<"idle" | "done" | "error">("idle");
   const vpRef        = useRef(vp);
   vpRef.current = vp;
 
@@ -197,6 +203,76 @@ export function Flowchart({ chart, error }: FlowchartProps) {
     setVp(fitViewport(layout.width, layout.height, rect.width, rect.height));
   }, [layout]);
 
+  const copyMermaid = useCallback(async () => {
+    if (!chart) return;
+    try {
+      await writeText(chartToMermaid(chart));
+      setCopyState("copied");
+    } catch (err) {
+      console.warn("[clipboard] failed to copy Mermaid from custom renderer:", err);
+      setCopyState("error");
+    }
+  }, [chart]);
+
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 1800);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  useEffect(() => {
+    if (exportState === "idle") return;
+    const timer = window.setTimeout(() => setExportState("idle"), 1800);
+    return () => window.clearTimeout(timer);
+  }, [exportState]);
+
+  const buildExportSvg = useCallback(() => {
+    if (!layout || !containerRef.current) return null;
+    const sourceSvg = containerRef.current.querySelector("svg");
+    const sourceGroup = sourceSvg?.querySelector(":scope > g");
+    if (!sourceSvg || !sourceGroup) return null;
+
+    const padding = 32;
+    const colors = getChartExportColors();
+    const width = Math.ceil(layout.width + padding * 2);
+    const height = Math.ceil(layout.height + padding * 2);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+  <style>
+    .fill-secondary { fill: ${colors.background}; }
+    .fill-chart-node-bg { fill: ${colors.nodeBackground}; }
+    .stroke-chart-node-border { stroke: ${colors.nodeBorder}; }
+    .text-foreground { color: ${colors.foreground}; fill: ${colors.foreground}; }
+    .text-chart-text { color: ${colors.text}; fill: ${colors.text}; }
+    text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  </style>
+  <rect x="0" y="0" width="${width}" height="${height}" fill="${colors.background}" />
+  <g transform="translate(${padding}, ${padding})">
+    ${sourceGroup.innerHTML}
+  </g>
+</svg>`;
+  }, [layout]);
+
+  const exportDiagram = useCallback(async (format: ExportFormat) => {
+    if (!chart) return;
+    setExportMenuOpen(false);
+    try {
+      const svg = buildExportSvg();
+      if (!svg) throw new Error("Nothing to export.");
+      const fileBaseName = sanitizeExportName(chart.meta.title);
+      const saved = format === "svg"
+        ? await exportSvgFile(svg, fileBaseName)
+        : format === "png"
+          ? await exportPngFile(svg, fileBaseName)
+          : await exportPdfFile(svg, fileBaseName);
+      if (saved) setExportState("done");
+    } catch (err) {
+      console.warn(`[export] failed to export ${format} from custom renderer:`, err);
+      setExportState("error");
+    }
+  }, [buildExportSvg, chart]);
+
   // ── Render ────────────────────────────────────────────────
 
   const hasContent = layout && layout.nodes.length > 0;
@@ -252,6 +328,46 @@ export function Flowchart({ chart, error }: FlowchartProps) {
             title={activeNodeId ? "Stop Playback" : "Start Playback (Arrow keys to navigate)"}
           >
             {activeNodeId ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+          </ControlBtn>
+          <div className="relative">
+            <ControlBtn
+              onClick={() => setExportMenuOpen((open) => !open)}
+              title={
+                exportState === "done"
+                  ? "Exported"
+                  : exportState === "error"
+                    ? "Export failed"
+                    : "Export"
+              }
+            >
+              <Download size={14} />
+            </ControlBtn>
+            {exportMenuOpen && (
+              <div className="absolute bottom-9 left-0 min-w-[88px] overflow-hidden rounded-md border border-border bg-primary shadow-lg">
+                {(["svg", "png", "pdf"] as const).map((format) => (
+                  <button
+                    key={format}
+                    type="button"
+                    onClick={() => exportDiagram(format)}
+                    className="block w-full px-2.5 py-1.5 text-left text-[11px] uppercase tracking-wide text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  >
+                    {format}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <ControlBtn
+            onClick={copyMermaid}
+            title={
+              copyState === "copied"
+                ? "Copied Mermaid"
+                : copyState === "error"
+                  ? "Copy failed"
+                  : "Copy Mermaid"
+            }
+          >
+            <Clipboard size={14} />
           </ControlBtn>
           <ControlBtn onClick={() => setVp((v) => zoomAt(v, 1.25, containerRef.current))}>
             <ZoomIn size={14} />

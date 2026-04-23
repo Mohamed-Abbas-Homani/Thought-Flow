@@ -7,7 +7,7 @@ export interface LLMMessage {
   content: string;
 }
 
-const FLOWCHART_SYSTEM_PROMPT = `You are a flowchart generator. The user describes a process, idea, or system.
+export const FLOWCHART_SYSTEM_PROMPT = `You are a flowchart generator. The user describes a process, idea, or system.
 Respond ONLY with valid Mermaid flowchart syntax — no markdown fences, no explanation, just the Mermaid content.
 
 Format:
@@ -45,7 +45,7 @@ Rules:
 - direction is TD (vertical) unless user asks for horizontal (use LR instead)
 - Output ONLY the Mermaid — no other text`;
 
-function buildPatcherPrompt(chart: ChartGraph): string {
+export function buildPatcherPrompt(chart: ChartGraph): string {
   const mermaid = chartToMermaid(chart);
   return `You are a flowchart editor. The user requests changes to an existing flowchart.
 Respond ONLY with the complete modified Mermaid — no explanation, no fences.
