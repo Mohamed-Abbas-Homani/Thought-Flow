@@ -1,10 +1,9 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Clipboard, Download, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { Clipboard, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import mermaid from "mermaid";
 import type { ChartGraph } from "../lib/chart/types";
 import { chartToMermaid } from "../lib/chart/mermaid";
-import { exportPdfFile, exportPngFile, exportSvgFile, getChartExportColors, sanitizeExportName, type ExportFormat } from "../lib/chart/export";
 import { useSettingsStore } from "../store/settingsStore";
 import { useStreamingStore } from "../store/streamingStore";
 
@@ -214,8 +213,6 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
   const isDark = colorMode === "dark";
   const { isStreaming } = useStreamingStore();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [exportState, setExportState] = useState<"idle" | "done" | "error">("idle");
 
   const svg = useMermaidSvg(chart, isDark, theme);
 
@@ -436,68 +433,6 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
     return () => window.clearTimeout(timer);
   }, [copyState]);
 
-  useEffect(() => {
-    if (exportState === "idle") return;
-    const timer = window.setTimeout(() => setExportState("idle"), 1800);
-    return () => window.clearTimeout(timer);
-  }, [exportState]);
-
-  const buildExportSvg = useCallback(() => {
-    const svgEl = containerRef.current?.querySelector(".mermaid-wrap svg");
-    if (!svgEl) return null;
-    const clone = svgEl.cloneNode(true) as SVGSVGElement;
-    const colors = getChartExportColors();
-    const viewBox = clone.getAttribute("viewBox");
-    let width = 1600;
-    let height = 900;
-    if (viewBox) {
-      const parts = viewBox.split(/\s+/).map(Number);
-      if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
-        width = Math.ceil(parts[2]);
-        height = Math.ceil(parts[3]);
-      }
-    }
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
-    clone.setAttribute("width", String(width));
-    clone.setAttribute("height", String(height));
-    clone.style.background = colors.background;
-    clone.insertAdjacentHTML("afterbegin", `<rect x="0" y="0" width="${width}" height="${height}" fill="${colors.background}" />`);
-
-    let serialized = new XMLSerializer().serializeToString(clone);
-    const replacements: Array<[string, string]> = [
-      ["var(--chart-bg)", colors.background],
-      ["var(--chart-node-bg)", colors.nodeBackground],
-      ["var(--chart-node-border)", colors.nodeBorder],
-      ["var(--chart-edge)", colors.edge],
-      ["var(--chart-text)", colors.text],
-      ["var(--ring)", colors.ring],
-    ];
-    for (const [from, to] of replacements) {
-      serialized = serialized.split(from).join(to);
-    }
-    return serialized;
-  }, []);
-
-  const exportDiagram = useCallback(async (format: ExportFormat) => {
-    if (!chart) return;
-    setExportMenuOpen(false);
-    try {
-      const exportSvg = buildExportSvg();
-      if (!exportSvg) throw new Error("Nothing to export.");
-      const fileBaseName = sanitizeExportName(chart.meta.title);
-      const saved = format === "svg"
-        ? await exportSvgFile(exportSvg, fileBaseName)
-        : format === "png"
-          ? await exportPngFile(exportSvg, fileBaseName)
-          : await exportPdfFile(exportSvg, fileBaseName);
-      if (saved) setExportState("done");
-    } catch (err) {
-      console.warn(`[export] failed to export ${format} from mermaid renderer:`, err);
-      setExportState("error");
-    }
-  }, [buildExportSvg, chart]);
-
   // ── Render ─────────────────────────────────────────────────
 
   return (
@@ -564,34 +499,6 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
           >
             {activeNodeId ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
           </ControlBtn>
-          <div className="relative">
-            <ControlBtn
-              onClick={() => setExportMenuOpen((open) => !open)}
-              title={
-                exportState === "done"
-                  ? "Exported"
-                  : exportState === "error"
-                    ? "Export failed"
-                    : "Export"
-              }
-            >
-              <Download size={14} />
-            </ControlBtn>
-            {exportMenuOpen && (
-              <div className="absolute bottom-9 left-0 min-w-[88px] overflow-hidden rounded-md border border-border bg-primary shadow-lg">
-                {(["svg", "png", "pdf"] as const).map((format) => (
-                  <button
-                    key={format}
-                    type="button"
-                    onClick={() => exportDiagram(format)}
-                    className="block w-full px-2.5 py-1.5 text-left text-[11px] uppercase tracking-wide text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  >
-                    {format}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <ControlBtn
             onClick={copyMermaid}
             title={
