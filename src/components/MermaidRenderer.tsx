@@ -4,14 +4,17 @@ import type { ChartGraph } from "../lib/chart/types";
 import { chartToMermaid } from "../lib/chart/mermaid";
 import { useSettingsStore } from "../store/settingsStore";
 import { useStreamingStore } from "../store/streamingStore";
+import { Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────
 
 interface Viewport { x: number; y: number; scale: number; }
+interface ActiveNodeBounds { left: number; top: number; width: number; height: number; }
 
 const MIN_SCALE      = 0.1;
 const MAX_SCALE      = 4;
 const ZOOM_SENSITIVITY = 0.0012;
+const NODE_SHAPE_SELECTOR = "rect, polygon, circle, ellipse, path";
 
 let uid = 0;
 
@@ -73,6 +76,12 @@ function useMermaidSvg(chart: ChartGraph | null, isDark: boolean, theme: string)
             fill: var(--chart-node-bg) !important;
             stroke: var(--chart-node-border) !important;
             stroke-width: 1.5px !important;
+            transition: all 0.3s ease;
+          }
+          .node.node-active rect, .node.node-active polygon, .node.node-active circle, .node.node-active path {
+            stroke: var(--ring) !important;
+            stroke-width: 3px !important;
+            stroke-dasharray: 5 2;
           }
           .node .label {
             color: var(--chart-text) !important;
@@ -144,6 +153,54 @@ function zoomAt(vp: Viewport, factor: number, el: HTMLElement | null): Viewport 
   return { scale: newScale, x: cx - (cx - vp.x) * f, y: cy - (cy - vp.y) * f };
 }
 
+function mermaidNodeMatches(el: Element, nodeId: string): boolean {
+  const id = el.id || "";
+  if (id === nodeId) return true;
+
+  // Mermaid flowchart nodes are commonly emitted as `flowchart-n1-0`.
+  if (id.includes(`-${nodeId}-`) || id.endsWith(`-${nodeId}`) || id.startsWith(`${nodeId}-`)) {
+    return true;
+  }
+
+  return Array.from(el.classList).some((cls) => cls === nodeId || cls.includes(`-${nodeId}-`));
+}
+
+function mermaidNodeCenter(el: Element): { x: number; y: number } | null {
+  const transform = el.getAttribute("transform");
+  const translated = transform?.match(/translate\(([-\d.]+)[,\s]+([-\d.]+)\)/);
+  if (translated) {
+    return { x: parseFloat(translated[1]), y: parseFloat(translated[2]) };
+  }
+
+  if ("getBBox" in el) {
+    const bbox = (el as SVGGraphicsElement).getBBox();
+    return { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 };
+  }
+
+  return null;
+}
+
+function setMermaidNodeHighlight(el: Element, active: boolean) {
+  el.classList.toggle("node-active", active);
+
+  for (const shape of Array.from(el.querySelectorAll<SVGElement>(NODE_SHAPE_SELECTOR))) {
+    if (active) {
+      shape.style.setProperty("stroke", "var(--ring)", "important");
+      shape.style.setProperty("stroke-width", "3px", "important");
+      shape.style.setProperty("stroke-dasharray", "5 2", "important");
+    } else {
+      shape.style.removeProperty("stroke");
+      shape.style.removeProperty("stroke-width");
+      shape.style.removeProperty("stroke-dasharray");
+    }
+  }
+}
+
+function findMermaidNode(container: HTMLElement, nodeId: string): Element | null {
+  const nodes = container.querySelectorAll(".node");
+  return Array.from(nodes).find((n) => mermaidNodeMatches(n, nodeId)) ?? null;
+}
+
 // ── Component ─────────────────────────────────────────────────
 
 interface MermaidRendererProps {
@@ -159,6 +216,8 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [vp, setVp]  = useState<Viewport>({ x: 40, y: 40, scale: 1 });
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [activeBounds, setActiveBounds] = useState<ActiveNodeBounds | null>(null);
   const vpRef        = useRef(vp);
   vpRef.current = vp;
 
@@ -203,11 +262,108 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
         x: rect.width / 2 - targetX * scale,
         y: rect.height * 0.65 - targetY * scale,
       });
-    } else {
+    } else if (!activeNodeId) {
       setVp(fitViewport(size.w, size.h, rect.width, rect.height));
       console.log(`[mermaid] fit-to-view — svg ${size.w.toFixed(0)}×${size.h.toFixed(0)}`);
     }
-  }, [svg, isStreaming]);
+  }, [svg, isStreaming, activeNodeId]);
+
+  // ── Highlighting & Center Active Node ───────────────────────
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const nodes = containerRef.current.querySelectorAll(".node");
+    let targetNode: Element | null = null;
+
+    for (const n of Array.from(nodes)) {
+      const isActive = !!activeNodeId && mermaidNodeMatches(n, activeNodeId);
+      setMermaidNodeHighlight(n, isActive);
+      if (isActive) {
+        targetNode = n;
+      }
+    }
+
+    if (!targetNode) {
+      setActiveBounds(null);
+      return;
+    }
+
+    const center = mermaidNodeCenter(targetNode);
+    if (!center) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const scale = Math.max(vp.scale, 1.1);
+    setVp({
+      scale,
+      x: rect.width / 2 - center.x * scale,
+      y: rect.height / 2 - center.y * scale,
+    });
+  }, [activeNodeId, svg]);
+
+  useEffect(() => {
+    if (!containerRef.current || !activeNodeId) {
+      setActiveBounds(null);
+      return;
+    }
+
+    const targetNode = findMermaidNode(containerRef.current, activeNodeId);
+    if (!targetNode) {
+      setActiveBounds(null);
+      return;
+    }
+
+    const nodeRect = targetNode.getBoundingClientRect();
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const pad = 8;
+    setActiveBounds({
+      left: nodeRect.left - containerRect.left - pad,
+      top: nodeRect.top - containerRect.top - pad,
+      width: nodeRect.width + pad * 2,
+      height: nodeRect.height + pad * 2,
+    });
+  }, [activeNodeId, svg, vp]);
+
+  // ── KB Navigation ───────────────────────────────────────────
+
+  useEffect(() => {
+    if (!activeNodeId || !chart) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Find parent (incoming edge)
+      const incoming = chart.edges.filter(ev => ev.to === activeNodeId);
+      const parentId = incoming.length > 0 ? incoming[0].from : null;
+      
+      // Find siblings (all children of my parent)
+      const siblings = parentId 
+        ? chart.edges.filter(ev => ev.from === parentId).map(ev => ev.to)
+        : [];
+      
+      const outgoing = chart.edges.filter(ev => ev.from === activeNodeId);
+
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        if (outgoing.length > 0) setActiveNodeId(outgoing[0].to);
+      } else if (e.key === "ArrowUp" || e.key === "Backspace") {
+        if (parentId) setActiveNodeId(parentId);
+      } else if (e.key === "ArrowRight") {
+        const idx = siblings.indexOf(activeNodeId);
+        if (idx !== -1 && idx < siblings.length - 1) setActiveNodeId(siblings[idx + 1]);
+      } else if (e.key === "ArrowLeft") {
+        const idx = siblings.indexOf(activeNodeId);
+        if (idx > 0) setActiveNodeId(siblings[idx - 1]);
+      } else if (e.key === "Escape") {
+        setActiveNodeId(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeNodeId, chart]);
+
+  const startNavigation = () => {
+    if (!chart || chart.nodes.length === 0) return;
+    const startNode = chart.nodes.find(n => n.id === "n1") || chart.nodes[0];
+    setActiveNodeId(startNode.id);
+  };
 
   // ── Pan ────────────────────────────────────────────────────
 
@@ -216,6 +372,9 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // Don't start panning if clicking on the control buttons
+    if ((e.target as HTMLElement).closest('button')) return;
+    
     isPanning.current = true;
     panStart.current  = { x: e.clientX, y: e.clientY, vpX: vpRef.current.x, vpY: vpRef.current.y };
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
@@ -283,6 +442,30 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
         />
       )}
 
+      {activeBounds && (
+        <svg
+          className="absolute pointer-events-none overflow-visible"
+          style={{
+            left: `${activeBounds.left}px`,
+            top: `${activeBounds.top}px`,
+            width: `${activeBounds.width}px`,
+            height: `${activeBounds.height}px`,
+          }}
+        >
+          <rect
+            x={1.25}
+            y={1.25}
+            width={Math.max(0, activeBounds.width - 2.5)}
+            height={Math.max(0, activeBounds.height - 2.5)}
+            rx={10}
+            fill="none"
+            stroke="var(--ring)"
+            strokeWidth={2.5}
+            strokeDasharray="6 4"
+          />
+        </svg>
+      )}
+
       {!chart && (
         <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/30 text-[13px] pointer-events-none">
           Send a message to generate a diagram
@@ -291,9 +474,21 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
 
       {chart && (
         <div className="absolute bottom-3 right-3 flex gap-1">
-          <ControlBtn onClick={() => setVp((v) => zoomAt(v, 1.25, containerRef.current))}>+</ControlBtn>
-          <ControlBtn onClick={() => setVp((v) => zoomAt(v, 0.8,  containerRef.current))}>−</ControlBtn>
-          <ControlBtn onClick={fitView}>⊡</ControlBtn>
+          <ControlBtn 
+            onClick={activeNodeId ? () => setActiveNodeId(null) : startNavigation} 
+            title={activeNodeId ? "Stop Playback" : "Start Playback (Arrow keys to navigate)"}
+          >
+            {activeNodeId ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+          </ControlBtn>
+          <ControlBtn onClick={() => setVp((v) => zoomAt(v, 1.25, containerRef.current))}>
+            <ZoomIn size={14} />
+          </ControlBtn>
+          <ControlBtn onClick={() => setVp((v) => zoomAt(v, 0.8,  containerRef.current))}>
+            <ZoomOut size={14} />
+          </ControlBtn>
+          <ControlBtn onClick={fitView}>
+            <Maximize size={14} />
+          </ControlBtn>
         </div>
       )}
     </div>
@@ -302,10 +497,11 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
 
 // ── Control button ────────────────────────────────────────────
 
-function ControlBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function ControlBtn({ onClick, children, title }: { onClick: () => void; children: React.ReactNode; title?: string }) {
   return (
     <button
       onClick={onClick}
+      title={title}
       className="w-7 h-7 flex items-center justify-center rounded bg-primary border border-border text-muted-foreground hover:text-foreground hover:bg-secondary text-[14px] leading-none cursor-default"
     >
       {children}

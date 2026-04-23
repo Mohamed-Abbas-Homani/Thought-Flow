@@ -7,6 +7,7 @@ import { MermaidRenderer } from "./components/MermaidRenderer";
 import { applyTheme } from "./themes";
 import { useSettingsStore } from "./store/settingsStore";
 import { useTabStore } from "./store/tabStore";
+import { useLayoutStore } from "./store/layoutStore";
 import "./App.css";
 
 // Apply theme immediately so CSS vars are set before first paint
@@ -16,9 +17,8 @@ applyTheme(theme, colorMode);
 type RendererMode = "mermaid" | "custom";
 
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [chatOpen, setChatOpen]       = useState(true);
-  const [renderer, setRenderer]       = useState<RendererMode>("mermaid");
+  const { sidebarOpen, toggleSidebar, chatOpen, toggleChat } = useLayoutStore();
+  const [renderer, setRenderer] = useState<RendererMode>("mermaid");
 
   const { tabs, activeTabPath } = useTabStore();
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
@@ -27,11 +27,11 @@ function App() {
     <>
       <TitleBar
         sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((o) => !o)}
+        onToggleSidebar={toggleSidebar}
         chatOpen={chatOpen}
-        onToggleChat={() => setChatOpen((o) => !o)}
+        onToggleChat={toggleChat}
       />
-      <div className="app-body">
+      <div className="app-body pt-[42px]">
         {sidebarOpen && <Sidebar />}
 
         <main className="flex-1 overflow-hidden relative">

@@ -8,6 +8,7 @@ import { parseStreamingChart, partialToGraph } from "../lib/chart/streamParse";
 import { cn } from "@/lib/utils";
 import { useStreamingStore } from "../store/streamingStore";
 import { useSettingsStore } from "../store/settingsStore";
+import { useLayoutStore } from "../store/layoutStore";
 
 
 const MIN_WIDTH = 200;
@@ -18,7 +19,7 @@ export function ChatPanel() {
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
 
   const [input, setInput]           = useState("");
-  const [width, setWidth]           = useState(288);
+  const { chatWidth: width, setChatWidth: setWidth } = useLayoutStore();
   const { setIsStreaming } = useStreamingStore();
   const [streaming, setStreaming]   = useState(false);
   const [streamingText, setStreamingText] = useState("");

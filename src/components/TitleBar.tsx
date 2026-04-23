@@ -4,6 +4,7 @@ import { Minus, Square, Copy, X, PanelLeft, Files, Settings, Sun, Moon, MessageS
 import { SettingsModal } from "./SettingsModal";
 import { TabBar } from "./TabBar";
 import { useSettingsStore } from "../store/settingsStore";
+import { useLayoutStore } from "../store/layoutStore";
 
 const appWindow = getCurrentWindow();
 
@@ -17,6 +18,7 @@ interface TitleBarProps {
 export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const { colorMode, setColorMode, openSettings } = useSettingsStore();
+  const { sidebarWidth } = useLayoutStore();
 
   useEffect(() => {
     appWindow.isMaximized().then(setIsMaximized);
@@ -43,7 +45,11 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
         onMouseDown={handleDragMouseDown}
       >
         {/* Left: sidebar controls + settings */}
-        <div className="flex items-stretch h-full" onMouseDown={(e) => e.stopPropagation()}>
+        <div 
+          className="flex items-stretch h-full overflow-hidden transition-[width] duration-300 ease-in-out" 
+          style={{ width: sidebarOpen ? sidebarWidth : 120 }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <button
             title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             className={`${iconBtn} ${sidebarOpen ? "text-foreground" : "text-foreground/50 hover:text-foreground"}`}

@@ -1,14 +1,10 @@
-import { useState, useEffect } from "react";
-import { Sun, Moon, Check, Palette, Cpu, X } from "lucide-react";
+import { Sun, Moon, Check, Palette, Cpu } from "lucide-react";
 import { themes, type ColorMode } from "@/themes";
 import { useSettingsStore, type SettingsSection } from "@/store/settingsStore";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const COLOR_MODES: { key: ColorMode; label: string; icon: React.ReactNode }[] = [
@@ -110,7 +106,6 @@ export function SettingsModal() {
                   
                   <div className="grid grid-cols-2 gap-4">
                     {Object.entries(themes).map(([key, t]) => {
-                      const tokens = t[colorMode];
                       const isSelected = theme === key;
                       return (
                         <button
@@ -216,4 +211,3 @@ export function SettingsModal() {
     </Dialog>
   );
 }
-

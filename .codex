@@ -1,0 +1,62 @@
+# Thought Flow Project Notes
+
+Thought Flow is a Tauri + React + Vite desktop app for generating and viewing
+flowcharts from chat prompts.
+
+## Runtime Flow
+
+1. Files live in the user's documents directory under `thought-flow`.
+2. Opening a file creates a tab via `src/store/tabStore.ts`.
+3. Each file stores JSON chat messages, then `\n[+]\n`, then a JSON chart.
+4. `src/components/ChatPanel.tsx` sends chat history to the configured LLM.
+5. The LLM is instructed to return Mermaid flowchart syntax.
+6. Mermaid text is parsed into `ChartGraph`.
+7. The active renderer displays that graph.
+8. The tab is saved back to disk through Tauri FS APIs.
+
+## Important Files
+
+- `src/App.tsx`: app shell, renderer toggle, layout composition.
+- `src/components/ChatPanel.tsx`: chat UI and LLM streaming pipeline.
+- `src/lib/llm.ts`: Ollama, OpenAI-compatible, and Anthropic streaming clients.
+- `src/lib/chart/types.ts`: central `ChartGraph` data model.
+- `src/lib/chart/mermaid.ts`: Mermaid parse/serialize helpers.
+- `src/lib/chart/streamParse.ts`: tolerant partial parser for live preview.
+- `src/lib/chart/validate.ts`: structural cleanup after final parse.
+- `src/components/MermaidRenderer.tsx`: Mermaid.js renderer.
+- `src/components/Flowchart/index.tsx`: custom SVG renderer.
+- `src/components/Flowchart/layout.ts`: Dagre layout.
+- `src/components/sidebar/*`: file explorer, context menu, drag/drop.
+- `src/store/settingsStore.ts`: theme and LLM settings.
+- `src/store/tabStore.ts`: tabs, messages, chart load/save.
+- `src/store/layoutStore.ts`: persisted sidebar/chat layout state.
+
+## Chart Pipeline
+
+The internal graph type is `ChartGraph`.
+
+Mermaid comes in through either:
+
+- `parseStreamingChart(...)` during live preview.
+- `mermaidToChart(...)` after the full response finishes.
+
+After final parsing, `validateAndFix(...)` removes broken/duplicate edges and
+ensures start/end nodes exist when possible.
+
+## Renderers
+
+The app has two renderer modes:
+
+- `mermaid`: converts `ChartGraph` back to Mermaid and renders with Mermaid.js.
+- `custom`: lays out the graph with Dagre and draws SVG nodes/edges directly.
+
+Both support pan, zoom, fit-to-view, and keyboard-style node playback.
+
+## Notes / Gotchas
+
+- `chartToMermaid(...)` emits a custom `title:` line. Mermaid.js rejects that
+  line, so `MermaidRenderer` strips it before rendering.
+- `streamLLM(...)` supports a `currentChart` argument for patch/edit mode, but
+  `ChatPanel` currently calls it without passing the active chart.
+- The repo currently has local uncommitted changes. Do not revert unrelated
+  edits unless explicitly asked.

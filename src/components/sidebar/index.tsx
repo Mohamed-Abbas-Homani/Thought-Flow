@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useLayoutStore } from "../../store/layoutStore";
 import { FileExplorerPanel } from "./FileExplorer";
 
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 480;
 
 export function Sidebar() {
-  const [width, setWidth] = useState(240); // default w-60
+  const { sidebarWidth: width, setSidebarWidth: setWidth } = useLayoutStore();
 
   function handleResizeMouseDown(e: React.MouseEvent) {
     e.preventDefault();
@@ -31,7 +31,7 @@ export function Sidebar() {
   }
 
   return (
-    <div style={{ width }} className="flex flex-col h-full shrink-0 relative">
+    <div style={{ width }} className="flex flex-col h-full shrink-0 relative bg-background border-r border-[color-mix(in_srgb,var(--background)_82%,black_18%)]">
       <FileExplorerPanel />
       {/* Resize handle */}
       <div

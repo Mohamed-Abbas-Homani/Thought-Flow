@@ -1,65 +1,121 @@
 import type { LayoutEdge } from "./layout";
 
+type Point = { x: number; y: number };
+
 // ── Bezier path through waypoints ─────────────────────────────
 
-function pointsToPath(pts: { x: number; y: number }[]): string {
+function pointsToPath(pts: Point[]): string {
   if (pts.length < 2) return "";
   if (pts.length === 2) {
     const [a, b] = pts;
-    const dy = (b.y - a.y) * 0.5;
-    const dx = (b.x - a.x) * 0.5;
-    return `M ${a.x} ${a.y} C ${a.x + dx * 0.3} ${a.y + dy} ${b.x - dx * 0.3} ${b.y - dy} ${b.x} ${b.y}`;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const vertical = Math.abs(dy) >= Math.abs(dx);
+    const c1 = vertical
+      ? { x: a.x, y: a.y + dy * 0.45 }
+      : { x: a.x + dx * 0.45, y: a.y };
+    const c2 = vertical
+      ? { x: b.x, y: b.y - dy * 0.45 }
+      : { x: b.x - dx * 0.45, y: b.y };
+    return `M ${a.x} ${a.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${b.x} ${b.y}`;
   }
+
   let d = `M ${pts[0].x} ${pts[0].y}`;
-  for (let i = 1; i < pts.length; i++) {
-    const p0 = pts[Math.max(0, i - 2)];
-    const p1 = pts[i - 1];
-    const p2 = pts[i];
-    const p3 = pts[Math.min(pts.length - 1, i + 1)];
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x} ${p2.y}`;
+
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const smoothing = 0.18;
+    const cp1 = {
+      x: p1.x + (p2.x - p0.x) * smoothing,
+      y: p1.y + (p2.y - p0.y) * smoothing,
+    };
+    const cp2 = {
+      x: p2.x - (p3.x - p1.x) * smoothing,
+      y: p2.y - (p3.y - p1.y) * smoothing,
+    };
+    d += ` C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${p2.x} ${p2.y}`;
   }
+
   return d;
 }
 
 // ── Arrowhead at end of path ──────────────────────────────────
 
-function arrowTip(pts: { x: number; y: number }[], size = 8): string {
-  if (pts.length < 2) return "";
-  const end    = pts[pts.length - 1];
-  const prev   = pts[pts.length - 2];
+function distance(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function trimEnd(points: Point[], amount: number): Point[] {
+  if (points.length < 2 || amount <= 0) return points;
+  const pts = [...points];
+  let remaining = amount;
+
+  for (let i = pts.length - 1; i > 0; i--) {
+    const end = pts[i];
+    const prev = pts[i - 1];
+    const len = distance(prev, end);
+    if (len <= remaining) {
+      pts.pop();
+      remaining -= len;
+      continue;
+    }
+
+    const t = (len - remaining) / len;
+    pts[i] = {
+      x: prev.x + (end.x - prev.x) * t,
+      y: prev.y + (end.y - prev.y) * t,
+    };
+    return pts;
+  }
+
+  return points;
+}
+
+function arrowTip(end: Point, prev: Point, size = 10): string {
   const angle  = Math.atan2(end.y - prev.y, end.x - prev.x);
-  const spread = Math.PI / 7;
+  const spread = Math.PI / 8;
   const l1x = end.x - size * Math.cos(angle - spread);
   const l1y = end.y - size * Math.sin(angle - spread);
   const l2x = end.x - size * Math.cos(angle + spread);
   const l2y = end.y - size * Math.sin(angle + spread);
-  return `M ${l1x} ${l1y} L ${end.x} ${end.y} L ${l2x} ${l2y}`;
+  return `M ${end.x} ${end.y} L ${l1x} ${l1y} L ${l2x} ${l2y} Z`;
 }
 
 // ── Edge label midpoint ───────────────────────────────────────
 
-function midpoint(pts: { x: number; y: number }[]): { x: number; y: number } {
+function midpoint(pts: Point[]): Point {
   if (pts.length === 0) return { x: 0, y: 0 };
   if (pts.length === 1) return pts[0];
-  const mid = Math.floor(pts.length / 2);
-  if (pts.length % 2 === 0) {
-    return { x: (pts[mid - 1].x + pts[mid].x) / 2, y: (pts[mid - 1].y + pts[mid].y) / 2 };
+
+  const lengths = pts.slice(1).map((p, i) => distance(pts[i], p));
+  const total = lengths.reduce((sum, len) => sum + len, 0);
+  let travelled = 0;
+
+  for (let i = 0; i < lengths.length; i++) {
+    const len = lengths[i];
+    if (travelled + len >= total / 2) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const t = len === 0 ? 0 : (total / 2 - travelled) / len;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    travelled += len;
   }
-  return pts[mid];
+
+  return pts[Math.floor(pts.length / 2)];
 }
 
 // ── Stroke style ──────────────────────────────────────────────
 
-function strokeProps(style: LayoutEdge["style"]): { strokeDasharray?: string; strokeWidth: number } {
+function strokeProps(style: LayoutEdge["style"]): { strokeDasharray?: string; strokeWidth: number; arrowSize: number } {
   switch (style) {
-    case "dotted": return { strokeDasharray: "5 4", strokeWidth: 1.5 };
-    case "thick":  return { strokeWidth: 2.5 };
-    case "open":   return { strokeWidth: 1.5 };
-    default:       return { strokeWidth: 1.5 };
+    case "dotted": return { strokeDasharray: "5 5", strokeWidth: 1.7, arrowSize: 10 };
+    case "thick":  return { strokeWidth: 2.8, arrowSize: 12 };
+    case "open":   return { strokeWidth: 1.7, arrowSize: 0 };
+    default:       return { strokeWidth: 1.7, arrowSize: 10 };
   }
 }
 
@@ -69,9 +125,12 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
   const { points, style, label, isBack } = edge;
   if (points.length < 2) return null;
 
-  const pathD  = pointsToPath(points);
-  const arrowD = style === "open" ? "" : arrowTip(points);
-  const { strokeDasharray, strokeWidth } = strokeProps(style);
+  const { strokeDasharray, strokeWidth, arrowSize } = strokeProps(style);
+  const visiblePoints = style === "open" ? points : trimEnd(points, arrowSize * 0.72);
+  const pathD  = pointsToPath(visiblePoints);
+  const arrowD = style === "open"
+    ? ""
+    : arrowTip(points[points.length - 1], visiblePoints[visiblePoints.length - 1], arrowSize);
   const mid = midpoint(points);
 
   const stroke        = "var(--chart-edge)";
@@ -92,10 +151,11 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
       {arrowD && (
         <path
           d={arrowD}
-          fill="none"
+          fill={stroke}
           stroke={stroke}
           strokeOpacity={strokeOpacity}
-          strokeWidth={strokeWidth}
+          fillOpacity={strokeOpacity}
+          strokeWidth={0}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -103,12 +163,13 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
       {label && (
         <g transform={`translate(${mid.x}, ${mid.y})`}>
           <rect
-            x={-label.length * 3.5 - 4} y={-9}
-            width={label.length * 7 + 8} height={18}
-            rx={3}
+            x={-label.length * 3.4 - 7} y={-10}
+            width={label.length * 6.8 + 14} height={20}
+            rx={5}
             fill="var(--chart-bg)"
             stroke="var(--chart-node-border)"
-            strokeWidth={0.5}
+            strokeWidth={0.75}
+            opacity={0.94}
           />
           <text
             textAnchor="middle"
