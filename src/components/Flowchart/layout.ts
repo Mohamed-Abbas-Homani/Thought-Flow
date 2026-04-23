@@ -1,3 +1,4 @@
+import dagre from "dagre";
 import type { ChartGraph, ChartNode, ChartEdge } from "../../lib/chart/types";
 
 // ── Node geometry ─────────────────────────────────────────────
@@ -34,10 +35,40 @@ function nodeSize(shape: string): { w: number; h: number } {
   return SHAPE_SIZE[shape] ?? SHAPE_SIZE.default;
 }
 
-const RANK_GAP  = 90;  // vertical gap between layers (TB)
-const NODE_SEP  = 48;  // horizontal gap between siblings
-const PADDING   = 80;  // canvas margin (slightly larger to accommodate back-edge routing)
-const BACK_MARGIN = 70; // extra space on the right for backward edge arcs
+function intersectShape(node: LayoutNode, point: { x: number; y: number }) {
+  const { shape, x, y, w, h } = node;
+  const dx = point.x - x;
+  const dy = point.y - y;
+  let hw = w / 2;
+  let hh = h / 2;
+
+  if (!dx && !dy) return { x, y };
+
+  if (shape === "diamond") {
+    const t = 1 / (Math.abs(dx) / hw + Math.abs(dy) / hh);
+    return { x: x + dx * t, y: y + dy * t };
+  }
+
+  if (shape === "double-circle" || shape === "circle") {
+    const r = Math.min(hw, hh);
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const t = r / len;
+    return { x: x + dx * t, y: y + dy * t };
+  }
+
+  let sx = 0;
+  let sy = 0;
+  if (Math.abs(dy) * hw > Math.abs(dx) * hh) {
+    if (dy < 0) hh = -hh;
+    sx = (hh * dx) / dy;
+    sy = hh;
+  } else {
+    if (dx < 0) hw = -hw;
+    sx = hw;
+    sy = (hw * dy) / dx;
+  }
+  return { x: x + sx, y: y + sy };
+}
 
 // ── Main layout function ─────────────────────────────────────
 
@@ -45,218 +76,111 @@ export function computeLayout(chart: ChartGraph): Layout {
   const { nodes, edges } = chart;
   const dir = chart.meta.direction;
 
-  console.log(`[layout] computeLayout — ${nodes.length} nodes, ${edges.length} edges, dir=${dir}`);
   if (nodes.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
 
-  // ── 1. Build full adjacency ──────────────────────────────────
-  const allAdj = new Map<string, string[]>();
-  for (const n of nodes) allAdj.set(n.id, []);
-  for (const e of edges)  allAdj.get(e.from)?.push(e.to);
-
-  // ── 2. Shortest-path BFS — "natural" rank of each node ───────
-  //    First time a node is reached = its shortest-path rank.
-  //    This gives us the rank each node *should* occupy regardless
-  //    of long-range cross-edges.
-  const shortRank = new Map<string, number>();
-  {
-    const inDegFull = new Map<string, number>();
-    for (const n of nodes) inDegFull.set(n.id, 0);
-    for (const e of edges)  inDegFull.set(e.to, (inDegFull.get(e.to) ?? 0) + 1);
-
-    const q: string[] = [];
-    for (const n of nodes) {
-      if ((inDegFull.get(n.id) ?? 0) === 0) { shortRank.set(n.id, 0); q.push(n.id); }
-    }
-    // Fallback if graph has no source
-    if (q.length === 0 && nodes.length > 0) { shortRank.set(nodes[0].id, 0); q.push(nodes[0].id); }
-
-    while (q.length > 0) {
-      const id = q.shift()!;
-      const r  = shortRank.get(id) ?? 0;
-      for (const nxt of allAdj.get(id) ?? []) {
-        if (!shortRank.has(nxt)) { shortRank.set(nxt, r + 1); q.push(nxt); }
-      }
-    }
-    // Fallback for nodes not reachable from any source
-    for (const n of nodes) { if (!shortRank.has(n.id)) shortRank.set(n.id, 0); }
-  }
-
-  // ── 3. Identify backward edges ───────────────────────────────
-  //    An edge (u → v) is "backward" when its source has a
-  //    ≥ shortest-path rank than its target.  These represent
-  //    loops or cross-connections that visually go upward.
-  const backEdgeSet = new Set<string>();
-  for (const e of edges) {
-    const fr = shortRank.get(e.from) ?? 0;
-    const tr = shortRank.get(e.to)   ?? 0;
-    if (fr >= tr) backEdgeSet.add(`${e.from}→${e.to}`);
-  }
-
-  // ── 4. Forward-only adjacency + in-degree ────────────────────
-  const adj     = new Map<string, string[]>();
-  const predAdj = new Map<string, string[]>();
-  const inDeg   = new Map<string, number>();
-
-  for (const n of nodes) { adj.set(n.id, []); predAdj.set(n.id, []); inDeg.set(n.id, 0); }
-
-  for (const e of edges) {
-    if (backEdgeSet.has(`${e.from}→${e.to}`)) continue;
-    adj.get(e.from)?.push(e.to);
-    predAdj.get(e.to)?.push(e.from);
-    inDeg.set(e.to, (inDeg.get(e.to) ?? 0) + 1);
-  }
-
-  // ── 5. Longest-path BFS rank assignment (forward edges only) ─
-  const rank  = new Map<string, number>();
-  const queue: string[] = [];
-
-  for (const n of nodes) {
-    if ((inDeg.get(n.id) ?? 0) === 0) { rank.set(n.id, 0); queue.push(n.id); }
-  }
-  if (queue.length === 0 && nodes.length > 0) {
-    rank.set(nodes[0].id, 0);
-    queue.push(nodes[0].id);
-  }
-
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const r  = rank.get(id) ?? 0;
-    for (const nxt of adj.get(id) ?? []) {
-      const newRank = Math.max(rank.get(nxt) ?? 0, r + 1);
-      rank.set(nxt, newRank);
-      inDeg.set(nxt, (inDeg.get(nxt) ?? 0) - 1);
-      if ((inDeg.get(nxt) ?? 0) <= 0) queue.push(nxt);
-    }
-  }
-
-  console.log(`[layout] ranks: ${nodes.map(n => `${n.id}=r${rank.get(n.id) ?? '?'}`).join(', ')}`);
-  console.log(`[layout] back edges (${backEdgeSet.size}): ${[...backEdgeSet].join(', ') || 'none'}`);
-
-  // ── 6. Group nodes by rank ───────────────────────────────────
-  const layers = new Map<number, string[]>();
-  for (const n of nodes) {
-    const r = rank.get(n.id) ?? 0;
-    if (!layers.has(r)) layers.set(r, []);
-    layers.get(r)!.push(n.id);
-  }
-
-  // ── 7. Barycenter sort within each layer ─────────────────────
-  const posX = new Map<string, number>();
-  for (const [r, ids] of [...layers.entries()].sort(([a], [b]) => a - b)) {
-    if (r > 0) {
-      ids.sort((a, b) => {
-        const bca = avgPos(predAdj.get(a) ?? [], posX);
-        const bcb = avgPos(predAdj.get(b) ?? [], posX);
-        return bca - bcb;
-      });
-    }
-    ids.forEach((id, i) => posX.set(id, i));
-  }
-
-  // ── 8. Assign pixel coordinates ──────────────────────────────
-  const nodeById = new Map<string, ChartNode>(nodes.map(n => [n.id, n]));
-  const placed   = new Map<string, LayoutNode>();
-
-  for (const [r, ids] of layers) {
-    const sizes  = ids.map(id => nodeSize(nodeById.get(id)!.shape));
-    const totalW = sizes.reduce((s, sz) => s + sz.w, 0) + (ids.length - 1) * NODE_SEP;
-    let offsetX  = -totalW / 2;
-
-    ids.forEach((id, i) => {
-      const sz = sizes[i];
-      const cx = offsetX + sz.w / 2;
-      const cy = r * (SHAPE_SIZE.default.h + RANK_GAP);
-
-      placed.set(id, {
-        ...nodeById.get(id)!,
-        x: dir === "horizontal" ? cy : cx,
-        y: dir === "horizontal" ? cx : cy,
-        w: dir === "horizontal" ? sz.h : sz.w,
-        h: dir === "horizontal" ? sz.w : sz.h,
-      });
-
-      offsetX += sz.w + NODE_SEP;
-    });
-  }
-
-  // ── 9. Route edges ───────────────────────────────────────────
-  const layoutEdges: LayoutEdge[] = edges.map(e => {
-    const src    = placed.get(e.from);
-    const dst    = placed.get(e.to);
-    const isBack = backEdgeSet.has(`${e.from}→${e.to}`);
-    if (!src || !dst) return { ...e, points: [], isBack };
-    return { ...e, points: routeEdge(src, dst, dir, isBack), isBack };
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: dir === "horizontal" ? "LR" : "TB",
+    marginx: 40,
+    marginy: 40,
+    ranksep: 80,
+    nodesep: 48,
+    edgesep: 15,
   });
+  g.setDefaultEdgeLabel(() => ({}));
 
-  // ── 10. Bounding box (include edge waypoints for back arcs) ──
-  const allX = [
-    ...[...placed.values()].flatMap(n => [n.x - n.w / 2, n.x + n.w / 2]),
-    ...layoutEdges.flatMap(e => e.points.map(p => p.x)),
-  ];
-  const allY = [
-    ...[...placed.values()].flatMap(n => [n.y - n.h / 2, n.y + n.h / 2]),
-    ...layoutEdges.flatMap(e => e.points.map(p => p.y)),
-  ];
-
-  const minX = Math.min(...allX) - PADDING;
-  const minY = Math.min(...allY) - PADDING;
-  const maxX = Math.max(...allX) + PADDING;
-  const maxY = Math.max(...allY) + PADDING;
-
-  for (const n of placed.values()) { n.x -= minX; n.y -= minY; }
-  for (const e of layoutEdges) {
-    e.points = e.points.map(p => ({ x: p.x - minX, y: p.y - minY }));
+  for (const n of nodes) {
+    const size = nodeSize(n.shape);
+    g.setNode(n.id, { width: size.w, height: size.h, ...n });
   }
+
+  // To detect backwards edges visually if needed
+  for (const e of edges) {
+    g.setEdge(e.from, e.to, { originalEdge: e });
+  }
+
+  dagre.layout(g);
+
+  const placedNodeMap = new Map<string, LayoutNode>();
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  for (const id of g.nodes()) {
+    const out = g.node(id);
+    if (!out) continue;
+    
+    // The properties we spread injected during setNode
+    const n = out as any;
+    
+    const nodeOut: LayoutNode = {
+      ...n,
+      x:      out.x,
+      y:      out.y,
+      w:      out.width,
+      h:      out.height,
+    };
+    placedNodeMap.set(id, nodeOut);
+
+    minX = Math.min(minX, out.x - out.width / 2);
+    minY = Math.min(minY, out.y - out.height / 2);
+    maxX = Math.max(maxX, out.x + out.width / 2);
+    maxY = Math.max(maxY, out.y + out.height / 2);
+  }
+
+  const placedEdges: LayoutEdge[] = [];
+
+  for (const e of g.edges()) {
+    const out = g.edge(e);
+    if (!out) continue;
+    
+    const srcNode = placedNodeMap.get(e.v);
+    const dstNode = placedNodeMap.get(e.w);
+    
+    if (!srcNode || !dstNode) continue;
+    const originEdges = edges.filter(ce => ce.from === e.v && ce.to === e.w);
+    
+    // Handle edge points (Dagre routes them beautifully avoiding nodes)
+    let points = out.points ? [...out.points] : [];
+    
+    if (points.length >= 2) {
+      // Pull endpoints to shape intersections
+      const startInner = points[1] || dstNode;
+      const endInner   = points[points.length - 2] || srcNode;
+      points[0] = intersectShape(srcNode, startInner);
+      points[points.length - 1] = intersectShape(dstNode, endInner);
+    } else {
+      const start = intersectShape(srcNode, dstNode);
+      const end   = intersectShape(dstNode, srcNode);
+      points = [start, end];
+    }
+    
+    // Add to bound dimensions
+    for (const p of points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+
+    // Default dagre marks cycles sometimes, but we will treat all edges structurally identically
+    // except we can determine 'isBack' if it goes against the rank dir visually
+    const isBack = dir === "horizontal" ? dstNode.x < srcNode.x : dstNode.y < srcNode.y;
+
+    for (const originalEdge of originEdges) {
+      placedEdges.push({
+        ...originalEdge,
+        points: points,
+        isBack
+      });
+    }
+  }
+
+  const graphSize = g.graph();
 
   return {
-    nodes: [...placed.values()],
-    edges: layoutEdges,
-    width:  maxX - minX,
-    height: maxY - minY,
+    nodes: Array.from(placedNodeMap.values()),
+    edges: placedEdges,
+    width:  Math.max(graphSize.width ?? (maxX - minX + 80), 0),
+    height: Math.max(graphSize.height ?? (maxY - minY + 80), 0),
   };
-}
-
-// ── Edge routing ─────────────────────────────────────────────
-
-function routeEdge(
-  src: LayoutNode,
-  dst: LayoutNode,
-  dir: "horizontal" | "vertical",
-  isBack: boolean
-): { x: number; y: number }[] {
-  const tb = dir === "vertical";
-
-  if (isBack) {
-    // Backward edges route around the RIGHT side (TB) or BOTTOM side (LR).
-    // This keeps them visually separate from the main forward flow.
-    if (tb) {
-      const right = Math.max(src.x + src.w / 2, dst.x + dst.w / 2) + BACK_MARGIN;
-      return [
-        { x: src.x + src.w / 2, y: src.y },
-        { x: right,              y: src.y },
-        { x: right,              y: dst.y },
-        { x: dst.x + dst.w / 2, y: dst.y },
-      ];
-    } else {
-      const bottom = Math.max(src.y + src.h / 2, dst.y + dst.h / 2) + BACK_MARGIN;
-      return [
-        { x: src.x, y: src.y + src.h / 2 },
-        { x: src.x, y: bottom },
-        { x: dst.x, y: bottom },
-        { x: dst.x, y: dst.y + dst.h / 2 },
-      ];
-    }
-  }
-
-  // Forward edge: straight connection between node faces
-  const exit  = tb ? { x: src.x, y: src.y + src.h / 2 } : { x: src.x + src.w / 2, y: src.y };
-  const enter = tb ? { x: dst.x, y: dst.y - dst.h / 2 } : { x: dst.x - dst.w / 2, y: dst.y };
-  return [exit, enter];
-}
-
-// ── Helpers ───────────────────────────────────────────────────
-
-function avgPos(ids: string[], posMap: Map<string, number>): number {
-  if (ids.length === 0) return 0;
-  return ids.reduce((s, id) => s + (posMap.get(id) ?? 0), 0) / ids.length;
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, Copy, X, PanelLeft, Files, Settings, Sun, Moon, MessageSquare } from "lucide-react";
-import { ThemeModal } from "./ThemeModal";
+import { SettingsModal } from "./SettingsModal";
 import { TabBar } from "./TabBar";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -16,8 +16,7 @@ interface TitleBarProps {
 
 export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
-  const [themeModalOpen, setThemeModalOpen] = useState(false);
-  const { colorMode, setColorMode } = useSettingsStore();
+  const { colorMode, setColorMode, openSettings } = useSettingsStore();
 
   useEffect(() => {
     appWindow.isMaximized().then(setIsMaximized);
@@ -64,7 +63,7 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
           <button
             title="Settings"
             className={`${iconBtn} text-foreground/50 hover:text-foreground`}
-            onClick={() => setThemeModalOpen(true)}
+            onClick={() => openSettings()}
           >
             <Settings size={18} strokeWidth={1.5} />
           </button>
@@ -120,7 +119,7 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
         </div>
       </header>
 
-      <ThemeModal open={themeModalOpen} onClose={() => setThemeModalOpen(false)} />
+      <SettingsModal />
     </>
   );
 }

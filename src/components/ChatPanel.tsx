@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { Send, Trash2, Eye, EyeOff } from "lucide-react";
 import { useTabStore, type ChatMessage } from "../store/tabStore";
-import { streamOllama } from "../lib/ollama";
+import { streamLLM } from "../lib/llm";
 import { mermaidToChart } from "../lib/chart/mermaid";
 import { validateAndFix } from "../lib/chart/validate";
 import { parseStreamingChart, partialToGraph } from "../lib/chart/streamParse";
 import { cn } from "@/lib/utils";
 import { useStreamingStore } from "../store/streamingStore";
+import { useSettingsStore } from "../store/settingsStore";
 
 
 const MIN_WIDTH = 200;
@@ -22,6 +23,8 @@ export function ChatPanel() {
   const [streaming, setStreaming]   = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [livePreview, setLivePreview] = useState(false);
+  
+  const { llmModel, openSettings } = useSettingsStore();
 
   const bottomRef      = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
@@ -117,7 +120,7 @@ export function ChatPanel() {
     let lastEdgeCount = 0;
     let full = "";
     try {
-      full = await streamOllama(
+      full = await streamLLM(
         history,
         (token) => {
           accumulated += token;
@@ -143,7 +146,7 @@ export function ChatPanel() {
     } catch (err: unknown) {
       const isAbort = err instanceof Error && err.name === "AbortError";
       if (!isAbort) {
-        full = `[Error contacting Ollama: ${err instanceof Error ? err.message : String(err)}]`;
+        full = `[Error contacting LLM: ${err instanceof Error ? err.message : String(err)}]`;
         setStreamingText(full);
       }
     }
@@ -312,17 +315,29 @@ export function ChatPanel() {
             className="w-full resize-none bg-transparent text-foreground text-[13px] placeholder:text-muted-foreground px-3 pt-2.5 pb-1 outline-none leading-relaxed overflow-y-auto disabled:cursor-not-allowed"
           />
           <div className="flex items-center justify-between px-2 pb-2">
-            <button
-              type="button"
-              title={livePreview ? "Live preview on" : "Live preview off"}
-              onClick={() => setLivePreview((v) => !v)}
-              className={cn(
-                "p-1 rounded cursor-default transition-colors",
-                livePreview ? "text-ring" : "text-muted-foreground/40 hover:text-muted-foreground"
-              )}
-            >
-              {livePreview ? <Eye size={14} /> : <EyeOff size={14} />}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                title={livePreview ? "Live preview on" : "Live preview off"}
+                onClick={() => setLivePreview((v) => !v)}
+                className={cn(
+                  "p-1 rounded cursor-default transition-colors",
+                  livePreview ? "text-ring" : "text-muted-foreground/40 hover:text-muted-foreground"
+                )}
+              >
+                {livePreview ? <Eye size={14} /> : <EyeOff size={14} />}
+              </button>
+
+              <button 
+                type="button"
+                onClick={() => openSettings("model")}
+                className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer outline-none px-1"
+                title="Change Model/URL Endpoint"
+              >
+                {llmModel}
+              </button>
+            </div>
+
             <button
               type="submit"
               disabled={!input.trim() || !activeTab || streaming}

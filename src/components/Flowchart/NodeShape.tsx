@@ -136,7 +136,7 @@ function nodeClass(type: string): string {
   switch (type) {
     case "start":
     case "end":       return "fill-secondary stroke-chart-node-border";
-    case "decision":  return "fill-chart-bg stroke-chart-node-border";
+    case "decision":  return "fill-chart-node-bg stroke-chart-node-border";
     case "io":        return "fill-chart-node-bg stroke-chart-node-border";
     default:          return "fill-chart-node-bg stroke-chart-node-border";
   }
@@ -146,7 +146,7 @@ function textClass(type: string): string {
   switch (type) {
     case "start":
     case "end":      return "text-foreground";
-    case "decision": return "text-[color:var(--chart-node-border)]";
+    case "decision": return "text-chart-text";
     default:         return "text-chart-text";
   }
 }
