@@ -1,9 +1,10 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Clipboard, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { Clipboard, Download, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import mermaid from "mermaid";
 import type { ChartGraph } from "../lib/chart/types";
-import { chartToMermaid } from "../lib/chart/mermaid";
+import { chartToClipboardMermaid, chartToMermaid } from "../lib/chart/mermaid";
+import { exportDiagram, type ExportFormat } from "../lib/exportDiagram";
 import { useSettingsStore } from "../store/settingsStore";
 import { useStreamingStore } from "../store/streamingStore";
 
@@ -18,6 +19,18 @@ const ZOOM_SENSITIVITY = 0.0012;
 const NODE_SHAPE_SELECTOR = "rect, polygon, circle, ellipse, path";
 
 let uid = 0;
+
+function clipboardThemeTokens() {
+  const styles = getComputedStyle(document.documentElement);
+  const get = (name: string) => styles.getPropertyValue(name).trim();
+  return {
+    chartBg: get("--chart-bg"),
+    chartNodeBg: get("--chart-node-bg"),
+    chartNodeBorder: get("--chart-node-border"),
+    chartEdge: get("--chart-edge"),
+    chartText: get("--chart-text"),
+  };
+}
 
 // ── SVG size from mermaid output ──────────────────────────────
 
@@ -80,7 +93,7 @@ function useMermaidSvg(chart: ChartGraph | null, isDark: boolean, theme: string)
             transition: all 0.3s ease;
           }
           .node.node-active rect, .node.node-active polygon, .node.node-active circle, .node.node-active path {
-            stroke: var(--ring) !important;
+            stroke: var(--chart-node-bg) !important;
             stroke-width: 3px !important;
             stroke-dasharray: 5 2;
           }
@@ -186,7 +199,7 @@ function setMermaidNodeHighlight(el: Element, active: boolean) {
 
   for (const shape of Array.from(el.querySelectorAll<SVGElement>(NODE_SHAPE_SELECTOR))) {
     if (active) {
-      shape.style.setProperty("stroke", "var(--ring)", "important");
+      shape.style.setProperty("stroke", "var(--chart-node-bg)", "important");
       shape.style.setProperty("stroke-width", "3px", "important");
       shape.style.setProperty("stroke-dasharray", "5 2", "important");
     } else {
@@ -206,13 +219,21 @@ function findMermaidNode(container: HTMLElement, nodeId: string): Element | null
 
 interface MermaidRendererProps {
   chart: ChartGraph | null;
+  onRenameNode?: (nodeId: string, newText: string) => void;
+  onRenameEdge?: (from: string, to: string, currentLabel: string, newLabel: string) => void;
 }
 
-export function MermaidRenderer({ chart }: MermaidRendererProps) {
+type EditingState =
+  | { kind: "node"; nodeId: string; text: string; left: number; top: number; width: number; height: number }
+  | { kind: "edge"; from: string; to: string; currentLabel: string; text: string; left: number; top: number; width: number; height: number };
+
+export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRendererProps) {
   const { theme, colorMode } = useSettingsStore();
   const isDark = colorMode === "dark";
   const { isStreaming } = useStreamingStore();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [editingState, setEditingState] = useState<EditingState | null>(null);
 
   const svg = useMermaidSvg(chart, isDark, theme);
 
@@ -367,6 +388,52 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
     setActiveNodeId(startNode.id);
   };
 
+  // ── Node double-click to rename ────────────────────────────
+
+  function commitMermaidEdit() {
+    if (!editingState) return;
+    const trimmed = editingState.text.trim();
+    if (editingState.kind === "node") {
+      if (trimmed) onRenameNode?.(editingState.nodeId, trimmed);
+    } else {
+      onRenameEdge?.(editingState.from, editingState.to, editingState.currentLabel, trimmed);
+    }
+    setEditingState(null);
+  }
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || (!onRenameNode && !onRenameEdge)) return;
+
+    function handleDblClick(e: MouseEvent) {
+      const target = e.target as Element;
+      const containerRect = container!.getBoundingClientRect();
+
+      const nodeEl = target.closest(".node");
+      if (nodeEl && chart && onRenameNode) {
+        const chartNode = chart.nodes.find((n) => mermaidNodeMatches(nodeEl, n.id));
+        if (!chartNode) return;
+        const nodeRect = nodeEl.getBoundingClientRect();
+        setEditingState({ kind: "node", nodeId: chartNode.id, text: chartNode.text, left: nodeRect.left - containerRect.left, top: nodeRect.top - containerRect.top, width: nodeRect.width, height: nodeRect.height });
+        e.preventDefault();
+        return;
+      }
+
+      const edgeLabelEl = target.closest(".edgeLabel");
+      if (edgeLabelEl && chart && onRenameEdge) {
+        const labelText = (edgeLabelEl.textContent ?? "").trim();
+        const chartEdge = chart.edges.find((e) => e.label && e.label.trim() === labelText);
+        if (!chartEdge || !chartEdge.label) return;
+        const elRect = edgeLabelEl.getBoundingClientRect();
+        setEditingState({ kind: "edge", from: chartEdge.from, to: chartEdge.to, currentLabel: chartEdge.label, text: chartEdge.label, left: elRect.left - containerRect.left, top: elRect.top - containerRect.top, width: Math.max(elRect.width, 80), height: Math.max(elRect.height, 26) });
+        e.preventDefault();
+      }
+    }
+
+    container.addEventListener("dblclick", handleDblClick);
+    return () => container.removeEventListener("dblclick", handleDblClick);
+  }, [chart, svg, onRenameNode, onRenameEdge]);
+
   // ── Pan ────────────────────────────────────────────────────
 
   const isPanning = useRef(false);
@@ -374,8 +441,12 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    if (editingState) { setEditingState(null); return; }
     // Don't start panning if clicking on the control buttons
     if ((e.target as HTMLElement).closest('button')) return;
+    // Don't start panning when clicking on a node or edge label (double-click targets)
+    if ((e.target as Element).closest('.node')) return;
+    if ((e.target as Element).closest('.edgeLabel')) return;
     
     isPanning.current = true;
     panStart.current  = { x: e.clientX, y: e.clientY, vpX: vpRef.current.x, vpY: vpRef.current.y };
@@ -419,7 +490,7 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
   const copyMermaid = useCallback(async () => {
     if (!chart) return;
     try {
-      await writeText(chartToMermaid(chart));
+      await writeText(chartToClipboardMermaid(chart, clipboardThemeTokens()));
       setCopyState("copied");
     } catch (err) {
       console.warn("[clipboard] failed to copy Mermaid from mermaid renderer:", err);
@@ -432,6 +503,16 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
     const timer = window.setTimeout(() => setCopyState("idle"), 1800);
     return () => window.clearTimeout(timer);
   }, [copyState]);
+
+  const handleExport = useCallback(async (format: ExportFormat) => {
+    if (!chart) return;
+    try {
+      setExportMenuOpen(false);
+      await exportDiagram(containerRef.current, chart.meta?.title ?? "thought-flow", format, chart);
+    } catch (err) {
+      console.warn(`[export] failed to export ${format}:`, err);
+    }
+  }, [chart]);
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -478,11 +559,41 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
             height={Math.max(0, activeBounds.height - 2.5)}
             rx={10}
             fill="none"
-            stroke="var(--ring)"
+            stroke="var(--chart-node-bg)"
             strokeWidth={2.5}
             strokeDasharray="6 4"
           />
         </svg>
+      )}
+
+      {editingState && (
+        <input
+          autoFocus
+          value={editingState.text}
+          onChange={(e) => setEditingState((s) => s ? { ...s, text: e.target.value } : null)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitMermaidEdit(); }
+            if (e.key === "Escape") setEditingState(null);
+          }}
+          onBlur={commitMermaidEdit}
+          style={{
+            position: "absolute",
+            left: editingState.left,
+            top: editingState.top,
+            width: Math.max(editingState.width, 80),
+            height: Math.max(editingState.height, 28),
+            textAlign: "center",
+            fontSize: 13,
+            background: "var(--chart-node-bg)",
+            color: "var(--chart-text)",
+            border: "2px solid var(--chart-node-border)",
+            borderRadius: 6,
+            outline: "none",
+            padding: "0 6px",
+            zIndex: 10,
+            boxShadow: "0 0 0 2px var(--chart-bg), 0 0 0 4px var(--chart-edge)",
+          }}
+        />
       )}
 
       {!chart && (
@@ -511,6 +622,11 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
           >
             <Clipboard size={14} />
           </ControlBtn>
+          <ExportMenu
+            open={exportMenuOpen}
+            onToggle={() => setExportMenuOpen((open) => !open)}
+            onExport={(format) => void handleExport(format)}
+          />
           <ControlBtn onClick={() => setVp((v) => zoomAt(v, 1.25, containerRef.current))}>
             <ZoomIn size={14} />
           </ControlBtn>
@@ -527,6 +643,42 @@ export function MermaidRenderer({ chart }: MermaidRendererProps) {
 }
 
 // ── Control button ────────────────────────────────────────────
+
+function ExportMenu({
+  open,
+  onToggle,
+  onExport,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onExport: (format: ExportFormat) => void;
+}) {
+  return (
+    <div className="relative">
+      <ControlBtn onClick={onToggle} title="Export">
+        <Download size={14} />
+      </ControlBtn>
+      {open && (
+        <div className="absolute bottom-9 right-0 min-w-24 overflow-hidden rounded border border-border bg-primary text-[12px] text-foreground shadow-lg">
+          {([
+            "svg",
+            "html",
+            // "png",
+            // "pdf",
+          ] as ExportFormat[]).map((format) => (
+            <button
+              key={format}
+              onClick={() => onExport(format)}
+              className="block w-full px-3 py-2 text-left uppercase hover:bg-secondary"
+            >
+              {format}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ControlBtn({ onClick, children, title }: { onClick: () => void; children: React.ReactNode; title?: string }) {
   return (

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Send, Trash2 } from "lucide-react";
+import { Paintbrush, Send, Square, Trash2 } from "lucide-react";
 import { useTabStore, type ChatMessage } from "../store/tabStore";
 import { streamLLM } from "../lib/llm";
 import { mermaidToChart } from "../lib/chart/mermaid";
@@ -91,6 +91,10 @@ export function ChatPanel() {
     }
   }
 
+  function stopGeneration() {
+    abortRef.current?.abort();
+  }
+
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     const text = input.trim();
@@ -118,6 +122,9 @@ export function ChatPanel() {
 
     if (generationMode === "quality") {
       let assistantContent = "";
+      let stageAccumulated = "";
+      let stageLastNodeCount = 0;
+      let stageLastEdgeCount = 0;
       try {
         const result = await generateQualityChart({
           history,
@@ -127,6 +134,23 @@ export function ChatPanel() {
           onProgress: (message) => {
             setStreamingText(message);
             bottomRef.current?.scrollIntoView({ behavior: "instant" });
+          },
+          onStageStart: () => {
+            stageAccumulated = "";
+            stageLastNodeCount = 0;
+            stageLastEdgeCount = 0;
+          },
+          onStreamChunk: (token) => {
+            stageAccumulated += token;
+            const partial = parseStreamingChart(stageAccumulated);
+            if (partial && activeTabPathRef.current) {
+              const { nodes, edges } = partial;
+              if (nodes.length > stageLastNodeCount || edges.length > stageLastEdgeCount) {
+                stageLastNodeCount = nodes.length;
+                stageLastEdgeCount = edges.length;
+                setChart(activeTabPathRef.current, partialToGraph(partial));
+              }
+            }
           },
           onIntermediateChart: (chart) => {
             setChart(activeTabPath, chart);
@@ -142,6 +166,7 @@ export function ChatPanel() {
           setStreaming(false);
           setIsStreaming(false);
           setStreamingText("");
+          abortRef.current = null;
           return;
         }
         assistantContent = `[Quality mode failed: ${err instanceof Error ? err.message : String(err)}]`;
@@ -150,6 +175,7 @@ export function ChatPanel() {
       setStreaming(false);
       setIsStreaming(false);
       setStreamingText("");
+      abortRef.current = null;
 
       const assistantMsg: ChatMessage = { role: "assistant", content: assistantContent, timestamp: Date.now() };
       addMessage(activeTabPath, assistantMsg);
@@ -158,6 +184,7 @@ export function ChatPanel() {
       return;
     }
 
+    const isPatchMode = !!(activeTab?.chart);
     let accumulated = "";
     let lastNodeCount = 0;
     let lastEdgeCount = 0;
@@ -170,8 +197,8 @@ export function ChatPanel() {
           setStreamingText((t) => t + token);
           bottomRef.current?.scrollIntoView({ behavior: "instant" });
 
-          // Enhancement 1: live progressive Mermaid parse (line-by-line streaming)
-          if (activeTabPathRef.current) {
+          // In patch mode keep the existing chart visible until the final parse
+          if (!isPatchMode && activeTabPathRef.current) {
             const partial = parseStreamingChart(accumulated);
             if (partial) {
               const { nodes, edges } = partial;
@@ -184,10 +211,18 @@ export function ChatPanel() {
             }
           }
         },
-        abortRef.current.signal
+        abortRef.current.signal,
+        activeTab?.chart ?? null
       );
     } catch (err: unknown) {
       const isAbort = err instanceof Error && err.name === "AbortError";
+      if (isAbort) {
+        setStreaming(false);
+        setIsStreaming(false);
+        setStreamingText("");
+        abortRef.current = null;
+        return;
+      }
       if (!isAbort) {
         full = `[Error contacting LLM: ${err instanceof Error ? err.message : String(err)}]`;
         setStreamingText(full);
@@ -197,6 +232,7 @@ export function ChatPanel() {
     setStreaming(false);
     setIsStreaming(false);
     setStreamingText("");
+    abortRef.current = null;
 
     // Enhancement 1+2: Final Mermaid parse + structural validation/auto-fix
     // Extract Mermaid from response — handle optional code fences gracefully
@@ -269,7 +305,7 @@ export function ChatPanel() {
   const messages = activeTab?.messages ?? [];
 
   return (
-    <div style={{ width }} className="flex flex-col h-full border-l border-[color-mix(in_srgb,var(--background)_82%,black_18%)] shrink-0 relative">
+    <div style={{ width }} className="flex flex-col h-full border-l border-border shrink-0 relative">
       {/* Resize handle */}
       <div
         onMouseDown={handleResizeMouseDown}
@@ -277,7 +313,7 @@ export function ChatPanel() {
       />
 
       {/* Header */}
-      <div className="h-[42px] flex items-center justify-between px-3 shrink-0 border-b border-[color-mix(in_srgb,var(--background)_82%,black_18%)]">
+      <div className="h-[42px] flex items-center justify-between px-3 shrink-0 border-b border-border">
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-widest">
           {activeTab ? activeTab.name : "Chat"}
         </span>
@@ -368,6 +404,15 @@ export function ChatPanel() {
                 {llmModel}
               </button>
 
+              <button
+                type="button"
+                onClick={() => openSettings("chartTheme")}
+                className="h-5 w-5 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-default"
+                title="Chart Theme"
+              >
+                <Paintbrush size={12} strokeWidth={1.8} />
+              </button>
+
               <div className="flex rounded-md border border-border overflow-hidden text-[9px]">
                 {(["speed", "quality"] as const).map((mode) => (
                   <button
@@ -389,12 +434,16 @@ export function ChatPanel() {
             </div>
 
             <button
-              type="submit"
-              disabled={!input.trim() || !activeTab || streaming}
-              title="Send"
-              className="h-7 w-7 flex items-center justify-center rounded-md bg-ring text-background disabled:opacity-30 hover:opacity-90 disabled:hover:opacity-30 transition-opacity cursor-default"
+              type={streaming ? "button" : "submit"}
+              onClick={streaming ? stopGeneration : undefined}
+              disabled={!activeTab || (!streaming && !input.trim())}
+              title={streaming ? "Stop generation" : "Send"}
+              className="h-7 w-7 flex items-center justify-center rounded-md bg-transparent text-ring disabled:opacity-30 hover:opacity-80 disabled:hover:opacity-30 transition-opacity cursor-default"
             >
-              <Send size={13} strokeWidth={1.8} />
+              {streaming
+                ? <Square size={12} strokeWidth={1.8} fill="currentColor" className="animate-pulse" />
+                : <Send size={13} strokeWidth={1.8} />
+              }
             </button>
           </div>
         </form>

@@ -132,7 +132,7 @@ function strokeProps(style: LayoutEdge["style"]): { strokeDasharray?: string; st
 
 // ── Component ─────────────────────────────────────────────────
 
-export function EdgePath({ edge }: { edge: LayoutEdge }) {
+export function EdgePath({ edge, onLabelDoubleClick }: { edge: LayoutEdge; onLabelDoubleClick?: (clientX: number, clientY: number) => void }) {
   const { points, style, label, isBack } = edge;
   if (points.length < 2) return null;
   const displayLabel = label ? stripOuterQuotes(label) : "";
@@ -173,7 +173,14 @@ export function EdgePath({ edge }: { edge: LayoutEdge }) {
         />
       )}
       {displayLabel && (
-        <g transform={`translate(${mid.x}, ${mid.y})`}>
+        <g
+          data-edge-label
+          transform={`translate(${mid.x}, ${mid.y})`}
+          style={{ cursor: onLabelDoubleClick ? "text" : undefined }}
+          onDoubleClick={onLabelDoubleClick ? (e) => { e.stopPropagation(); onLabelDoubleClick(e.clientX, e.clientY); } : undefined}
+        >
+          {/* expanded hit area — pointerEvents="all" ensures fill="transparent" is still clickable */}
+          <rect x={-displayLabel.length * 3.4 - 12} y={-14} width={displayLabel.length * 6.8 + 24} height={28} rx={5} fill="transparent" pointerEvents="all" />
           <rect
             x={-displayLabel.length * 3.4 - 7} y={-10}
             width={displayLabel.length * 6.8 + 14} height={20}

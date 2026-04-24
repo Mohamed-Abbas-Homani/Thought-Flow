@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import type { ChartGraph } from "../../lib/chart/types";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Clipboard, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
-import { chartToMermaid } from "../../lib/chart/mermaid";
+import { Clipboard, Download, Play, Square, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { chartToClipboardMermaid } from "../../lib/chart/mermaid";
+import { exportDiagram, type ExportFormat } from "../../lib/exportDiagram";
 import { computeLayout } from "./layout";
 import { NodeShape } from "./NodeShape";
 import { EdgePath } from "./EdgePath";
@@ -15,6 +16,18 @@ interface Viewport { x: number; y: number; scale: number; }
 const MIN_SCALE      = 0.15;
 const MAX_SCALE      = 3;
 const ZOOM_SENSITIVITY = 0.0012;
+
+function clipboardThemeTokens() {
+  const styles = getComputedStyle(document.documentElement);
+  const get = (name: string) => styles.getPropertyValue(name).trim();
+  return {
+    chartBg: get("--chart-bg"),
+    chartNodeBg: get("--chart-node-bg"),
+    chartNodeBorder: get("--chart-node-border"),
+    chartEdge: get("--chart-edge"),
+    chartText: get("--chart-text"),
+  };
+}
 
 // ── Fit-to-view helper ────────────────────────────────────────
 
@@ -41,13 +54,21 @@ function fitViewport(
 interface FlowchartProps {
   chart: ChartGraph | null;
   error?: string | null;
+  onRenameNode?: (nodeId: string, newText: string) => void;
+  onRenameEdge?: (from: string, to: string, currentLabel: string, newLabel: string) => void;
 }
 
-export function Flowchart({ chart, error }: FlowchartProps) {
+interface EdgeEdit { from: string; to: string; currentLabel: string; value: string; screenX: number; screenY: number; }
+
+export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: FlowchartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [vp, setVp]  = useState<Viewport>({ x: 40, y: 40, scale: 1 });
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [editingEdge, setEditingEdge] = useState<EdgeEdit | null>(null);
   const vpRef        = useRef(vp);
   vpRef.current = vp;
 
@@ -97,9 +118,32 @@ export function Flowchart({ chart, error }: FlowchartProps) {
   const isPanning = useRef(false);
   const panStart  = useRef({ x: 0, y: 0, vpX: 0, vpY: 0 });
 
+  function commitEdit() {
+    if (!editingNodeId) return;
+    const text = editingValue.trim();
+    if (text) onRenameNode?.(editingNodeId, text);
+    setEditingNodeId(null);
+    setEditingValue("");
+  }
+
+  function startEdit(nodeId: string, currentText: string) {
+    setEditingNodeId(nodeId);
+    setEditingValue(currentText.replace(/^["']|["']$/g, "").trim());
+  }
+
+  function commitEdgeEdit() {
+    if (!editingEdge) return;
+    const newLabel = editingEdge.value.trim();
+    onRenameEdge?.(editingEdge.from, editingEdge.to, editingEdge.currentLabel, newLabel);
+    setEditingEdge(null);
+  }
+
   const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
+    if (editingNodeId) { setEditingNodeId(null); setEditingValue(""); return; }
+    if (editingEdge) { setEditingEdge(null); return; }
     if ((e.target as SVGElement).closest("[data-node]")) return;
+    if ((e.target as SVGElement).closest("[data-edge-label]")) return;
     isPanning.current = true;
     panStart.current  = { x: e.clientX, y: e.clientY, vpX: vp.x, vpY: vp.y };
     (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
@@ -203,7 +247,7 @@ export function Flowchart({ chart, error }: FlowchartProps) {
   const copyMermaid = useCallback(async () => {
     if (!chart) return;
     try {
-      await writeText(chartToMermaid(chart));
+      await writeText(chartToClipboardMermaid(chart, clipboardThemeTokens()));
       setCopyState("copied");
     } catch (err) {
       console.warn("[clipboard] failed to copy Mermaid from custom renderer:", err);
@@ -216,6 +260,16 @@ export function Flowchart({ chart, error }: FlowchartProps) {
     const timer = window.setTimeout(() => setCopyState("idle"), 1800);
     return () => window.clearTimeout(timer);
   }, [copyState]);
+
+  const handleExport = useCallback(async (format: ExportFormat) => {
+    if (!chart) return;
+    try {
+      setExportMenuOpen(false);
+      await exportDiagram(containerRef.current, chart.meta?.title ?? "thought-flow", format, chart);
+    } catch (err) {
+      console.warn(`[export] failed to export ${format}:`, err);
+    }
+  }, [chart]);
 
   // ── Render ────────────────────────────────────────────────
 
@@ -241,17 +295,96 @@ export function Flowchart({ chart, error }: FlowchartProps) {
           {hasContent && (
             <>
               {layout.edges.map((edge, i) => (
-                <EdgePath key={`${edge.from}→${edge.to}→${i}`} edge={edge} />
+                <EdgePath
+                  key={`${edge.from}→${edge.to}→${i}`}
+                  edge={edge}
+                  onLabelDoubleClick={onRenameEdge && edge.label ? (clientX, clientY) => {
+                    const rect = containerRef.current!.getBoundingClientRect();
+                    setEditingEdge({ from: edge.from, to: edge.to, currentLabel: edge.label!, value: edge.label!, screenX: clientX - rect.left, screenY: clientY - rect.top });
+                  } : undefined}
+                />
               ))}
               {layout.nodes.map((node) => (
                 <g key={node.id} data-node={node.id}>
-                  <NodeShape node={node} focused={activeNodeId === node.id} />
+                  <NodeShape
+                    node={node}
+                    focused={activeNodeId === node.id}
+                    onDoubleClick={onRenameNode ? () => startEdit(node.id, node.text) : undefined}
+                  />
                 </g>
               ))}
             </>
           )}
         </g>
       </svg>
+
+      {editingNodeId && layout && (() => {
+        const node = layout.nodes.find((n) => n.id === editingNodeId);
+        if (!node) return null;
+        const cx = node.x * vp.scale + vp.x;
+        const cy = node.y * vp.scale + vp.y;
+        const iw = Math.max(node.w * vp.scale, 80);
+        const ih = Math.max(node.h * vp.scale, 28);
+        return (
+          <input
+            autoFocus
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
+              if (e.key === "Escape") { setEditingNodeId(null); setEditingValue(""); }
+            }}
+            onBlur={commitEdit}
+            style={{
+              position: "absolute",
+              left: cx - iw / 2,
+              top:  cy - ih / 2,
+              width: iw,
+              height: ih,
+              textAlign: "center",
+              fontSize: Math.max(10, 12 * vp.scale),
+              background: "var(--chart-node-bg)",
+              color: "var(--chart-text)",
+              border: "2px solid var(--chart-node-border)",
+              borderRadius: 6,
+              outline: "none",
+              padding: "0 6px",
+              zIndex: 10,
+              boxShadow: "0 0 0 2px var(--chart-bg), 0 0 0 4px var(--chart-edge)",
+            }}
+          />
+        );
+      })()}
+
+      {editingEdge && (
+        <input
+          autoFocus
+          value={editingEdge.value}
+          onChange={(e) => setEditingEdge((s) => s ? { ...s, value: e.target.value } : null)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitEdgeEdit(); }
+            if (e.key === "Escape") setEditingEdge(null);
+          }}
+          onBlur={commitEdgeEdit}
+          style={{
+            position: "absolute",
+            left: editingEdge.screenX - 50,
+            top:  editingEdge.screenY - 13,
+            width: 100,
+            height: 26,
+            textAlign: "center",
+            fontSize: 11,
+            background: "var(--chart-node-bg)",
+            color: "var(--chart-text)",
+            border: "2px solid var(--chart-edge)",
+            borderRadius: 5,
+            outline: "none",
+            padding: "0 4px",
+            zIndex: 10,
+            boxShadow: "0 0 0 2px var(--chart-bg)",
+          }}
+        />
+      )}
 
       {error && (
         <div className="absolute bottom-3 left-3 right-3 bg-background/90 border border-error/40 rounded-md px-3 py-2 text-[12px] font-mono text-error backdrop-blur-sm">
@@ -285,6 +418,11 @@ export function Flowchart({ chart, error }: FlowchartProps) {
           >
             <Clipboard size={14} />
           </ControlBtn>
+          <ExportMenu
+            open={exportMenuOpen}
+            onToggle={() => setExportMenuOpen((open) => !open)}
+            onExport={(format) => void handleExport(format)}
+          />
           <ControlBtn onClick={() => setVp((v) => zoomAt(v, 1.25, containerRef.current))}>
             <ZoomIn size={14} />
           </ControlBtn>
@@ -313,6 +451,42 @@ function zoomAt(vp: Viewport, factor: number, el: HTMLElement | null): Viewport 
 }
 
 // ── Control button ────────────────────────────────────────────
+
+function ExportMenu({
+  open,
+  onToggle,
+  onExport,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onExport: (format: ExportFormat) => void;
+}) {
+  return (
+    <div className="relative">
+      <ControlBtn onClick={onToggle} title="Export">
+        <Download size={14} />
+      </ControlBtn>
+      {open && (
+        <div className="absolute bottom-9 right-0 min-w-24 overflow-hidden rounded border border-border bg-primary text-[12px] text-foreground shadow-lg">
+          {([
+            "svg",
+            "html",
+            // "png",
+            // "pdf",
+          ] as ExportFormat[]).map((format) => (
+            <button
+              key={format}
+              onClick={() => onExport(format)}
+              className="block w-full px-3 py-2 text-left uppercase hover:bg-secondary"
+            >
+              {format}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ControlBtn({ onClick, children, title }: { onClick: () => void; children: React.ReactNode; title?: string }) {
   return (

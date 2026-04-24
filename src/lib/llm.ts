@@ -40,7 +40,7 @@ Rules:
 - Node IDs must be sequential: n1, n2, n3, ...
 - CRITICAL: Always wrap node labels in double quotes inside the shapes: n2["My Label"]
 - CRITICAL: Every node must be defined with its label in ["brackets"] on its FIRST appearance.
-- Decision nodes {"text"} MUST have ≥2 outgoing edges with labels (Yes/No, True/False, etc.)
+- Decision nodes {"text"} MUST have ≥2 outgoing edges with labels
 - Keep node labels concise (3–6 words)
 - direction is TD (vertical) unless user asks for horizontal (use LR instead)
 - Output ONLY the Mermaid — no other text`;
@@ -93,7 +93,8 @@ export async function streamLLM(
 export async function completeLLM(
   systemPrompt: string,
   messages: LLMMessage[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onChunk?: (token: string) => void
 ): Promise<string> {
   const allMessages = [
     { role: "system", content: systemPrompt },
@@ -101,7 +102,7 @@ export async function completeLLM(
   ];
 
   const chunks: string[] = [];
-  const collect = (token: string) => chunks.push(token);
+  const collect = (token: string) => { chunks.push(token); onChunk?.(token); };
   const { llmProvider, llmUrl, llmModel, llmApiKey } = useSettingsStore.getState();
 
   if (llmProvider === "ollama") {

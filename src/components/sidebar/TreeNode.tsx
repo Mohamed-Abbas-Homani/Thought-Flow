@@ -100,6 +100,7 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
     if (newPath === entry.path) return;
     try {
       await rename(entry.path, newPath);
+      useTabStore.getState().updatePath(entry.path, newPath, newName);
       onRefreshParent();
     } catch (err) {
       console.error("Rename failed:", err);

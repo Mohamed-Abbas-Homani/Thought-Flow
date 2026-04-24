@@ -10,6 +10,8 @@ export interface QualityPipelineInput {
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
   onIntermediateChart?: (chart: ChartGraph, stage: "generation" | "validation" | "enhancer" | "finalize") => void;
+  onStageStart?: (stage: "generation" | "validation" | "enhancer") => void;
+  onStreamChunk?: (token: string, stage: "generation" | "validation" | "enhancer") => void;
 }
 
 export interface QualityPipelineResult {
@@ -82,8 +84,10 @@ async function runStage(
   userContent: string
 ): Promise<string> {
   input.onProgress?.(progress);
+  input.onStageStart?.(stage);
   assertNotAborted(input.signal);
-  const raw = await completeLLM(systemPrompt, [{ role: "user", content: userContent }], input.signal);
+  const onChunk = input.onStreamChunk ? (token: string) => input.onStreamChunk!(token, stage) : undefined;
+  const raw = await completeLLM(systemPrompt, [{ role: "user", content: userContent }], input.signal, onChunk);
   return extractMermaid(raw, stage);
 }
 

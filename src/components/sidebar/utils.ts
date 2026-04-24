@@ -1,7 +1,7 @@
 import { readDir } from "@tauri-apps/plugin-fs";
 import type { FsEntry } from "./types";
 
-export const BORDER = "border-[color-mix(in_srgb,var(--background)_82%,black_18%)]";
+export const BORDER = "border-border";
 
 export async function listDir(path: string): Promise<FsEntry[]> {
   const entries = await readDir(path);

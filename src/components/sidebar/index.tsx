@@ -31,7 +31,7 @@ export function Sidebar() {
   }
 
   return (
-    <div style={{ width }} className="flex flex-col h-full shrink-0 relative bg-background border-r border-[color-mix(in_srgb,var(--background)_82%,black_18%)]">
+    <div style={{ width }} className="flex flex-col h-full shrink-0 relative bg-background border-r border-border">
       <FileExplorerPanel />
       {/* Resize handle */}
       <div

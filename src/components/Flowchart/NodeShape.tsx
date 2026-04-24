@@ -146,7 +146,7 @@ function Stadium({ w, h, className }: ShapeProps) {
 function nodeClass(type: string): string {
   switch (type) {
     case "start":
-    case "end":       return "fill-secondary stroke-chart-node-border";
+    case "end":       return "fill-chart-node-bg stroke-chart-node-border";
     case "decision":  return "fill-chart-node-bg stroke-chart-node-border";
     case "io":        return "fill-chart-node-bg stroke-chart-node-border";
     default:          return "fill-chart-node-bg stroke-chart-node-border";
@@ -156,7 +156,7 @@ function nodeClass(type: string): string {
 function textClass(type: string): string {
   switch (type) {
     case "start":
-    case "end":      return "text-foreground";
+    case "end":      return "text-chart-text";
     case "decision": return "text-chart-text";
     default:         return "text-chart-text";
   }
@@ -167,9 +167,10 @@ function textClass(type: string): string {
 interface NodeShapeProps {
   node: LayoutNode;
   focused?: boolean;
+  onDoubleClick?: () => void;
 }
 
-export function NodeShape({ node, focused }: NodeShapeProps) {
+export function NodeShape({ node, focused, onDoubleClick }: NodeShapeProps) {
   const { x, y, w, h, shape, type, text } = node;
   const cls     = `${nodeClass(type)} stroke-[1.5px]`;
   const textPad = shape === "parallelogram" ? w - 30 : w - 16;
@@ -194,8 +195,10 @@ export function NodeShape({ node, focused }: NodeShapeProps) {
       style={{
         transform:  `translate(${x}px, ${y}px)`,
         transition: "transform 0.35s cubic-bezier(0.4,0,0.2,1)",
+        cursor: onDoubleClick ? "text" : undefined,
       }}
       className={textClass(type)}
+      onDoubleClick={onDoubleClick}
     >
       {focused && (
         <rect
@@ -203,7 +206,7 @@ export function NodeShape({ node, focused }: NodeShapeProps) {
           width={w + 12}  height={h + 12}
           rx={10}
           fill="none"
-          stroke="var(--ring)"
+          stroke="var(--chart-node-bg)"
           strokeWidth={2}
           strokeDasharray="5 3"
           opacity={0.75}

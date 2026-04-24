@@ -4,15 +4,16 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatPanel } from "./components/ChatPanel";
 import { Flowchart } from "./components/Flowchart";
 import { MermaidRenderer } from "./components/MermaidRenderer";
-import { applyTheme } from "./themes";
+import { applyTheme, applyThemeTokens, themes } from "./themes";
 import { useSettingsStore } from "./store/settingsStore";
 import { useTabStore } from "./store/tabStore";
 import { useLayoutStore } from "./store/layoutStore";
 import "./App.css";
 
 // Apply theme immediately so CSS vars are set before first paint
-const { theme, colorMode } = useSettingsStore.getState();
-applyTheme(theme, colorMode);
+const { theme, colorMode, customThemes, chartThemeTokens } = useSettingsStore.getState();
+applyTheme(theme, colorMode, { ...themes, ...customThemes });
+if (chartThemeTokens) applyThemeTokens(chartThemeTokens);
 
 type RendererMode = "mermaid" | "custom";
 
@@ -20,8 +21,16 @@ function App() {
   const { sidebarOpen, toggleSidebar, chatOpen, toggleChat } = useLayoutStore();
   const [renderer, setRenderer] = useState<RendererMode>("mermaid");
 
-  const { tabs, activeTabPath } = useTabStore();
+  const { tabs, activeTabPath, renameNode, renameEdge } = useTabStore();
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
+
+  function handleRenameNode(nodeId: string, newText: string) {
+    if (activeTabPath) renameNode(activeTabPath, nodeId, newText);
+  }
+
+  function handleRenameEdge(from: string, to: string, currentLabel: string, newLabel: string) {
+    if (activeTabPath) renameEdge(activeTabPath, from, to, currentLabel, newLabel);
+  }
 
   return (
     <>
@@ -37,9 +46,9 @@ function App() {
         <main className="flex-1 overflow-hidden relative">
           {activeTab ? (
             renderer === "mermaid" ? (
-              <MermaidRenderer key={activeTab.path} chart={activeTab.chart} />
+              <MermaidRenderer key={activeTab.path} chart={activeTab.chart} onRenameNode={handleRenameNode} onRenameEdge={handleRenameEdge} />
             ) : (
-              <Flowchart key={activeTab.path} chart={activeTab.chart} />
+              <Flowchart key={activeTab.path} chart={activeTab.chart} onRenameNode={handleRenameNode} onRenameEdge={handleRenameEdge} />
             )
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/30 text-[13px] pointer-events-none select-none">

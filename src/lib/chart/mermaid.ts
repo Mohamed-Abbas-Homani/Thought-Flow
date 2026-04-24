@@ -312,3 +312,46 @@ export function chartToMermaid(chart: ChartGraph): string {
 
   return lines.join("\n");
 }
+
+export interface MermaidThemeTokens {
+  chartBg: string;
+  chartNodeBg: string;
+  chartNodeBorder: string;
+  chartEdge: string;
+  chartText: string;
+}
+
+function quoteInitValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export function chartToClipboardMermaid(chart: ChartGraph, theme?: MermaidThemeTokens): string {
+  const lines = chartToMermaid(chart)
+    .split("\n")
+    .filter((line) => !line.startsWith("title:"));
+
+  if (!theme) return lines.join("\n");
+
+  const init = [
+    `%%{init: {"theme": "base", "themeVariables": {`,
+    `"background": "${quoteInitValue(theme.chartBg)}", `,
+    `"primaryColor": "${quoteInitValue(theme.chartNodeBg)}", `,
+    `"primaryTextColor": "${quoteInitValue(theme.chartText)}", `,
+    `"primaryBorderColor": "${quoteInitValue(theme.chartNodeBorder)}", `,
+    `"lineColor": "${quoteInitValue(theme.chartEdge)}", `,
+    `"nodeTextColor": "${quoteInitValue(theme.chartText)}"`,
+    `}}}%%`,
+  ].join("");
+
+  const styledLines = [init, ...lines];
+  for (const node of chart.nodes) {
+    styledLines.push(
+      `style ${node.id} fill:${theme.chartNodeBg},stroke:${theme.chartNodeBorder},color:${theme.chartText}`
+    );
+  }
+  chart.edges.forEach((_, index) => {
+    styledLines.push(`linkStyle ${index} stroke:${theme.chartEdge},color:${theme.chartText}`);
+  });
+
+  return styledLines.join("\n");
+}

@@ -70,7 +70,7 @@ export function ContextMenu({ menu, onClose }: Props) {
     <div
       ref={ref}
       style={{ top: y, left: x }}
-      className="fixed z-[200] min-w-[180px] bg-primary border border-[color-mix(in_srgb,var(--background)_60%,black_40%)] shadow-xl py-1 rounded-sm"
+      className="fixed z-[200] min-w-[180px] bg-primary border border-border shadow-xl py-1 rounded-sm"
     >
       {items.map((item, i) =>
         item.kind === "sep" ? (

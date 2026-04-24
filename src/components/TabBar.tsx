@@ -20,7 +20,7 @@ export function TabBar() {
         return (
           <div
             key={tab.path}
-            className={`relative flex items-center shrink-0 h-full border-r border-[color-mix(in_srgb,var(--background)_82%,black_18%)] transition-colors ${
+            className={`relative flex items-center shrink-0 h-full border-r border-border transition-colors ${
               isActive
                 ? "bg-primary text-foreground"
                 : "text-foreground/50 hover:text-foreground hover:bg-primary/30"

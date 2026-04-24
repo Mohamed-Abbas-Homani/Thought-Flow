@@ -1,6 +1,9 @@
-import { Sun, Moon, Check, Palette, Cpu } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Sun, Moon, Check, Palette, Cpu, Paintbrush, Trash2, WandSparkles } from "lucide-react";
 import { themes, type ColorMode } from "@/themes";
 import { useSettingsStore, type SettingsSection } from "@/store/settingsStore";
+import { useTabStore } from "@/store/tabStore";
+import { generateAppThemeFromPrompt, generateChartThemeFromPrompt } from "@/lib/themeGenerator";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +16,12 @@ const COLOR_MODES: { key: ColorMode; label: string; icon: React.ReactNode }[] = 
 ];
 
 export function SettingsModal() {
+  const [appThemePrompt, setAppThemePrompt] = useState("");
+  const [chartPrompt, setChartPrompt] = useState("");
+  const [generatingAppTheme, setGeneratingAppTheme] = useState(false);
+  const [generatingChartTheme, setGeneratingChartTheme] = useState(false);
+  const [themeError, setThemeError] = useState<string | null>(null);
+
   const { 
     isSettingsOpen, 
     activeSection, 
@@ -20,19 +29,90 @@ export function SettingsModal() {
     openSettings,
     theme, 
     colorMode, 
+    customThemes,
+    chartThemePrompt,
+    chartThemeTokens,
     setTheme, 
     setColorMode,
+    addCustomTheme,
+    deleteCustomTheme,
+    setChartTheme,
     llmProvider,
     llmUrl,
     llmModel,
     llmApiKey,
     setLLMConfig
   } = useSettingsStore();
+  const { activeTabPath, applyChartTheme } = useTabStore();
 
   const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
     { id: "theme", label: "Appearance", icon: <Palette size={16} /> },
     { id: "model", label: "LLM Model", icon: <Cpu size={16} /> },
+    { id: "chartTheme", label: "Chart Theme", icon: <Paintbrush size={16} /> },
   ];
+
+  const availableThemes = { ...themes, ...customThemes };
+
+  useEffect(() => {
+    if (activeSection === "chartTheme") {
+      setChartPrompt(chartThemePrompt);
+    }
+    setThemeError(null);
+  }, [activeSection, chartThemePrompt]);
+
+  async function createAppTheme() {
+    const prompt = appThemePrompt.trim();
+    if (!prompt || generatingAppTheme) return;
+    setThemeError(null);
+    setGeneratingAppTheme(true);
+    try {
+      const generated = await generateAppThemeFromPrompt(prompt);
+      addCustomTheme(generated);
+      setAppThemePrompt("");
+    } catch (err) {
+      setThemeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingAppTheme(false);
+    }
+  }
+
+  async function createChartTheme() {
+    const prompt = chartPrompt.trim();
+    if (!prompt || generatingChartTheme) return;
+    setThemeError(null);
+    setGeneratingChartTheme(true);
+    try {
+      const generated = await generateChartThemeFromPrompt(prompt);
+      setChartTheme(prompt, generated);
+      if (activeTabPath) {
+        await applyChartTheme(activeTabPath, generated);
+      }
+    } catch (err) {
+      setThemeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingChartTheme(false);
+    }
+  }
+
+  async function resetChartTheme() {
+    setThemeError(null);
+    setChartPrompt("");
+    setChartTheme("", null);
+
+    const activeTheme = availableThemes[theme] ?? themes.raven;
+    const tokens = activeTheme[colorMode] ?? activeTheme.dark;
+    const chartTokens = {
+      "chart-bg": tokens["chart-bg"],
+      "chart-node-bg": tokens["chart-node-bg"],
+      "chart-node-border": tokens["chart-node-border"],
+      "chart-edge": tokens["chart-edge"],
+      "chart-text": tokens["chart-text"],
+    };
+
+    if (activeTabPath) {
+      await applyChartTheme(activeTabPath, chartTokens);
+    }
+  }
 
   return (
     <Dialog open={isSettingsOpen} onOpenChange={(o) => { if (!o) closeSettings(); }}>
@@ -105,8 +185,9 @@ export function SettingsModal() {
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
-                    {Object.entries(themes).map(([key, t]) => {
+                    {Object.entries(availableThemes).map(([key, t]) => {
                       const isSelected = theme === key;
+                      const isCustom = !!customThemes[key];
                       return (
                         <button
                           key={key}
@@ -131,11 +212,124 @@ export function SettingsModal() {
                               </div>
                             )}
                           </div>
+                          {isCustom && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              title="Delete theme"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                deleteCustomTheme(key);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Enter" && e.key !== " ") return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                deleteCustomTheme(key);
+                              }}
+                              className="absolute top-2 right-2 h-7 w-7 hidden group-hover:flex items-center justify-center rounded-md text-muted-foreground hover:text-error hover:bg-background/70 transition-colors cursor-default"
+                            >
+                              <Trash2 size={13} />
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
                 </section>
+
+                <section>
+                  <div className="flex flex-col gap-1 mb-5">
+                    <h3 className="text-sm font-semibold tracking-tight">Create Theme</h3>
+                    <p className="text-[12px] text-muted-foreground">Describe a palette or paste colors to save a reusable app theme.</p>
+                  </div>
+
+                  <div className="space-y-3 rounded-xl bg-secondary/10 p-4">
+                    <textarea
+                      value={appThemePrompt}
+                      onChange={(e) => setAppThemePrompt(e.target.value)}
+                      rows={3}
+                      className="w-full resize-none bg-background/70 border-2 border-transparent rounded-xl px-4 py-3 text-sm text-foreground outline-none focus:border-ring/40 transition-all placeholder:text-muted-foreground/50"
+                      placeholder='e.g. "modern graphite with cyan accents" or "#0f172a #38bdf8"'
+                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[11px] text-muted-foreground">Generated themes are saved locally and appear in the theme grid.</p>
+                      <button
+                        type="button"
+                        onClick={createAppTheme}
+                        disabled={!appThemePrompt.trim() || generatingAppTheme}
+                        className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-ring text-background px-3 py-2 text-xs font-semibold disabled:opacity-40 cursor-default"
+                      >
+                        <WandSparkles size={14} />
+                        {generatingAppTheme ? "Creating..." : "Create"}
+                      </button>
+                    </div>
+                    {themeError && (
+                      <p className="text-[12px] text-error">{themeError}</p>
+                    )}
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {activeSection === "chartTheme" && (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex flex-col gap-1 border-b border-border pb-6">
+                  <h3 className="text-sm font-semibold tracking-tight">Chart Theme</h3>
+                  <p className="text-[12px] text-muted-foreground">Generate viewer and chart colors without changing the rest of the app.</p>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 px-1">Theme Prompt</label>
+                  <textarea
+                    value={chartPrompt}
+                    onChange={(e) => setChartPrompt(e.target.value)}
+                    rows={5}
+                    className="w-full resize-none bg-secondary/10 border-2 border-transparent rounded-xl px-4 py-3 text-sm text-foreground outline-none focus:border-ring/40 focus:bg-background transition-all placeholder:text-muted-foreground/50"
+                    placeholder='e.g. "modern dark chart with emerald nodes" or "background #09090b, text white, edge violet"'
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[12px] text-muted-foreground">
+                      Current: {chartThemePrompt || "Using the selected app theme"}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {chartThemeTokens && (
+                        <button
+                          type="button"
+                          onClick={resetChartTheme}
+                          className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground cursor-default"
+                        >
+                          Reset
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={createChartTheme}
+                        disabled={!chartPrompt.trim() || generatingChartTheme}
+                        className="inline-flex items-center gap-2 rounded-lg bg-ring text-background px-3 py-2 text-xs font-semibold disabled:opacity-40 cursor-default"
+                      >
+                        <WandSparkles size={14} />
+                        {generatingChartTheme ? "Generating..." : "Generate"}
+                      </button>
+                    </div>
+                  </div>
+                  {themeError && (
+                    <p className="text-[12px] text-error">{themeError}</p>
+                  )}
+                </div>
+
+                {chartThemeTokens && (
+                  <div className="grid grid-cols-5 gap-2">
+                    {Object.entries(chartThemeTokens).map(([key, value]) => (
+                      <div key={key} className="rounded-lg border border-border bg-secondary/10 p-2">
+                        <div className="h-10 rounded-md border border-border/40" style={{ backgroundColor: value }} />
+                        <div className="mt-2 text-[10px] text-muted-foreground truncate">{key}</div>
+                        <div className="text-[10px] text-foreground font-mono">{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

@@ -5,6 +5,7 @@
  */
 
 import { rename } from "@tauri-apps/plugin-fs";
+import { useTabStore } from "../../store/tabStore";
 import type { FsEntry } from "./types";
 
 // ─── Module-level state ───────────────────────────────────────────────────────
@@ -125,6 +126,7 @@ async function onMouseUp(_e: MouseEvent) {
 
   try {
     await rename(src.path, destPath);
+    useTabStore.getState().updatePath(src.path, destPath, src.name);
     refreshSrcParent();
     _folderRefresh.get(target)?.();
   } catch (err) {
@@ -192,7 +194,7 @@ function createGhost(name: string, x: number, y: number): HTMLElement {
     font-size: 13px;
     opacity: 0.92;
     white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--background) 70%, transparent);
   `;
   document.body.appendChild(el);
   return el;

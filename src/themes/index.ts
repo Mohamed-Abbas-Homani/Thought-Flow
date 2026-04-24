@@ -362,12 +362,16 @@ export const themes: Record<string, Theme> = {
 
 export type ColorMode = "light" | "dark";
 
-export function applyTheme(themeKey: string, mode: ColorMode) {
-  const theme = themes[themeKey];
-  if (!theme) return;
-  const tokens = theme[mode] ?? theme.dark;
+export function applyThemeTokens(tokens: ThemeTokens | Partial<ThemeTokens>) {
   const root = document.documentElement;
   for (const [token, value] of Object.entries(tokens)) {
-    root.style.setProperty(`--${token}`, value);
+    if (value) root.style.setProperty(`--${token}`, value);
   }
+}
+
+export function applyTheme(themeKey: string, mode: ColorMode, themeMap: Record<string, Theme> = themes) {
+  const theme = themeMap[themeKey];
+  if (!theme) return;
+  const tokens = theme[mode] ?? theme.dark;
+  applyThemeTokens(tokens);
 }

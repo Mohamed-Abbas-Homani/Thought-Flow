@@ -37,7 +37,7 @@ npm run tauri build
 
 ## Core Concept
 
-Every file is a chat session. Files are stored in `~/Documents/thought-flow/` with a two-part format:
+Every file is a chat session stored in `~/Documents/thought-flow/` with a two-part format:
 
 ```
 [{"role":"user","content":"...","timestamp":0},...]
@@ -49,105 +49,154 @@ Every file is a chat session. Files are stored in `~/Documents/thought-flow/` wi
 - Part 2: `ChartGraph` JSON (absent/empty on new files)
 - Delimiter: `\n[+]\n`
 
-Clicking a file in the sidebar opens it as a tab. The canvas shows the chart; the chat panel shows the conversation. Sending a message streams to Ollama which returns Mermaid; the canvas updates and the file is auto-saved.
-
 ## State Management
 
-**`src/store/tabStore.ts`** — single source of truth (Zustand, not persisted):
-- `tabs: Tab[]` — each tab holds `path`, `name`, `messages`, `chart`, `isDirty`
-- `openTab(path, name)` — reads file, parses both parts, adds tab
-- `addMessage / setChart / saveTab` — mutate tab state and write to disk
-- `closeTab` — removes tab, switches to adjacent
+| Store | File | Persisted | Purpose |
+|-------|------|-----------|---------|
+| `useTabStore` | `store/tabStore.ts` | No | Tabs, messages, chart state, load/save |
+| `useSettingsStore` | `store/settingsStore.ts` | `thought-flow-settings` | Theme, color mode, LLM config |
+| `useLayoutStore` | `store/layoutStore.ts` | `thought-flow-layout` | Sidebar/chat widths and open state |
+| `useStreamingStore` | `store/streamingStore.ts` | No | Global `isStreaming` flag for renderers |
 
-**`src/store/settingsStore.ts`** — theme + color mode (Zustand, persisted to localStorage as `"thought-flow-settings"`)
+**`useSettingsStore`** holds the multi-provider LLM config: `llmProvider` (`"ollama" | "openai" | "anthropic"`), `llmUrl`, `llmModel`, `llmApiKey`.
+
+**`useTabStore`** key mutations:
+- `setChart(path, chart)` — replace full chart
+- `renameNode(path, nodeId, newText)` — mutates a node's text, re-serializes chart to last assistant message so the patcher sees the rename, then auto-saves
+- `renameEdge(path, from, to, currentLabel, newLabel)` — same pattern for edge labels; matches first edge with `from + to + currentLabel`
+- Both rename actions sync the last assistant message (`content.includes("graph ")` guard) so subsequent LLM edits don't revert manual renames
 
 ## UI Components
 
 ### Layout
 - `TitleBar` — fixed 42px header: left (sidebar/files/settings), center (`TabBar`), right (chat toggle, theme, window controls)
-- `TabBar` — rendered inside TitleBar center; tabs sourced from `tabStore`
-- `Sidebar` — left panel, default 240px, resizable 160–480px (drag handle on right edge)
-- `ChatPanel` — right panel, default 288px, resizable 200–600px (drag handle on left edge)
-- `App.tsx` renders `<Flowchart key={activeTab.path} chart={activeTab.chart} />` in the main area (key forces remount on tab switch, triggering fit-to-view)
-
-### Resizable panels
-Both panels use the same pointer pattern: `onMouseDown` on a 4px edge handle → attach `mousemove`/`mouseup` to `document`, set `cursor`/`userSelect` on body, clamp to min/max.
+- `TabBar` — rendered inside TitleBar; tabs sourced from `tabStore`
+- `Sidebar` — left panel, resizable via `layoutStore.sidebarWidth` (160–480px)
+- `ChatPanel` — right panel, resizable via `layoutStore.chatWidth` (200–600px)
+- `App.tsx` — renders active renderer inside `<main>`, with a `mermaid | custom` toggle button (top-right corner of canvas); wires `onRenameNode` and `onRenameEdge` to both renderers
 
 ### Theme system
-- 6 themes in `src/themes/index.ts` (Raven, Pluto, Moon, Mother Tree, Owl, Dawn), each with `dark`/`light` token sets
+- Built-in themes in `src/themes/index.ts`, each with `dark`/`light` token sets
 - `applyTheme(key, mode)` swaps CSS vars on `document.documentElement` at runtime (not class-based)
-- Called at module level in `App.tsx` before first render to avoid flash
+- Called at module level in `App.tsx` before first render, and on rehydration in `settingsStore`
+- AI-generated themes via `src/lib/themeGenerator.ts` — `generateAppThemeFromPrompt` runs two `completeLLM` passes (generation + contrast-fix); `generateChartThemeFromPrompt` generates chart-only tokens
 
 ### Tailwind CSS v4
 `@tailwindcss/vite` plugin (not PostCSS). Semantic tokens (`background`, `foreground`, `primary`, etc.) mapped via `@theme inline` in `src/index.css`.
 
 ## Chart System (`src/lib/chart/types.ts`)
 
-`ChartGraph` is the extensible chart data format:
-- `meta.type: "flowchart"` — discriminator for future chart types (timeline, mindmap, etc.)
+`ChartGraph` is the central data format:
+- `meta.type: "flowchart"` — discriminator for future chart types
 - `ChartNode`: `id`, `text`, `type`, `shape`, `styleClass`, `metadata`
 - `ChartEdge`: `from`, `to`, `type`, `label`, `style`, `metadata`
+- `node.text` is stored **without** surrounding quotes — `mermaidText()` adds quotes on serialization
 
-### Flowchart renderer (`src/components/Flowchart/`)
-- `layout.ts` — Sugiyama hierarchical layout (BFS rank assignment, barycenter sort, pixel coordinate placement). Logs `[layout] computeLayout`, `[layout] ranks`, `[layout] fit-to-view triggered`.
-- `NodeShape.tsx` — 10 SVG shapes (rounded-rect, rect, diamond, parallelogram, hexagon, subroutine, cylinder, double-circle, flag, stadium)
-- `EdgePath.tsx` — Catmull-Rom → Bézier curves with arrowheads; back edges (type=loop/jump) routed around the left margin
-- `index.tsx` — pan (pointer capture), zoom (wheel toward cursor). Auto-fits when: first nodes arrive, first edges arrive (important: nodes can precede edges in live preview), or chart height grows >40%.
+## LLM Integration (`src/lib/llm.ts`)
 
-## Ollama Integration (`src/lib/ollama.ts`)
+Single entry point for all LLM providers:
+- `streamLLM(messages, onChunk, signal?, currentChart?)` — streaming generation; passes `currentChart` to switch to patcher prompt
+- `completeLLM(systemPrompt, messages, signal?, onChunk?)` — blocking single completion; optional `onChunk` lets callers observe tokens without breaking the blocking contract (used by quality pipeline for live canvas updates)
+- Provider dispatch reads `useSettingsStore` at call time: `ollama`, `openai`, `anthropic`
+- Each provider uses the same buffer-split-safe NDJSON/SSE pattern: accumulate into `buffer`, only process complete lines via `lines.pop()`
+- Two system prompts: `FLOWCHART_SYSTEM_PROMPT` (new chart) and `buildPatcherPrompt(chart)` (edit mode)
+- Node labels **must be quoted**: `n2["My Label"]` — enforced in system prompt
 
-- Model: `llama3.1:8b` at `http://localhost:11434/api/chat` with `stream: true`, `temperature: 0`
-- Streams NDJSON (buffer-split-safe: accumulate into `buffer`, only process complete lines via `lines.pop()`)
-- Two system prompts: `FLOWCHART_SYSTEM_PROMPT` (new chart) and `buildPatcherPrompt(chart)` (edit existing)
-- Both prompts request **Mermaid** output, not JSON — ~10× fewer tokens than JSON for the same chart
-- Logs: `[ollama] mode=generator|patcher`, `[ollama] input messages:`, `[ollama] full response:`
+**Note:** `src/lib/ollama.ts` still exists as a legacy file but `llm.ts` is the active entry point used by `ChatPanel`.
 
-## Chart Generation Pipeline (`src/lib/chart/`)
+## Chart Generation Pipeline
 
-The model outputs Mermaid; the pipeline converts it to `ChartGraph`:
-
+### Speed mode (live streaming)
 ```
-Ollama stream → (Enhancement 1) line-by-line Mermaid parse → PartialChart → setChart (live)
-                                                                                    ↓
-Ollama done  → extract Mermaid (strip code fences) → mermaidToChart → (Enhancement 2) validateAndFix → setChart (final)
+streamLLM → onChunk → parseStreamingChart → setChart (live preview, new charts only)
+         → full response → mermaidToChart → validateAndFix → setChart (final)
 ```
+**Patch mode guard**: when `activeTab.chart` exists (editing), `isPatchMode = true` suppresses live preview during streaming — the existing chart stays on canvas until the final validated parse replaces it.
+
+### Quality mode (`src/lib/chart/qualityPipeline.ts`)
+Three sequential `completeLLM` calls, each builds on the previous:
+1. **Generation** — draft chart from user request (uses `FLOWCHART_SYSTEM_PROMPT` or `buildPatcherPrompt`)
+2. **Validation** — rewriter removes duplicate/hallucinated nodes, repairs coherence
+3. **Enhancer** — improves shape semantics and edge labels without changing process logic
+4. **Finalize** — `sanitizeMermaidSyntax → mermaidToChart → validateAndFix → chartToMermaid → re-parse`
+
+`QualityPipelineInput` callbacks:
+- `onProgress(message)` — stage label shown in chat ("🛠️ Generating…")
+- `onStageStart(stage)` — resets per-stage accumulation in `ChatPanel`
+- `onStreamChunk(token, stage)` — fired for every token; `ChatPanel` runs `parseStreamingChart` and calls `setChart` when node/edge count grows → live canvas updates within each stage
+- `onIntermediateChart(chart, stage)` — fired after each stage with the finalized stage chart
 
 ### `mermaid.ts` — Mermaid ↔ ChartGraph
-- `parseMermaidLine(line)` — regex-based, handles node defs, edges (chained), labels, all 10 shapes
-- `mermaidToChart(text)` — full parse; placeholder nodes overwritten when real definition arrives (`existing.text === n.id` guard)
-- `chartToMermaid(chart)` — used by patcher prompt to give the model the current chart as compact Mermaid context
-- Logs: `[mermaid] line "..." → N node(s), N edge(s)`
+- `parseMermaidLine(line)` — regex-based, handles node defs, chained edges, labels, all 10 shapes
+- Valid Mermaid ID guard: `/^[A-Za-z_][\w]*$/` — prevents partial-stream artifacts (e.g. `|`) becoming ghost nodes
+- `mermaidToChart(text)` — full parse; placeholder nodes (where `text === id`) are overwritten when real definition arrives
+- `chartToMermaid(chart)` — emits a custom `title:` line **not valid in mermaid.js** — strip it before passing to `MermaidRenderer`
 
 ### `streamParse.ts` — Incremental parse during streaming
-- `parseStreamingChart(accumulated)` — re-parses full accumulated text each call, returns `PartialChart | null`
-- Same placeholder-overwrite guard as `mermaid.ts`
-- Used by live preview in `ChatPanel` — only triggers `setChart` when node or edge count increases
+- `parseStreamingChart(accumulated)` — re-parses full accumulated text on each call, returns `PartialChart | null`
+- Triggers `setChart` only when node or edge count increases
 
 ### `validate.ts` — Structural validation + auto-fix
-- `validateAndFix(chart)` — run after every final parse before `setChart`
-- Fixes: broken edge refs (remove), duplicate node IDs (suffix _2), missing start node (promote), missing end node (promote)
-- Warns: decision nodes with <2 outgoing edges, orphaned nodes
+- Fixes: broken edge refs (remove), duplicate node IDs (suffix `_2`), missing start/end nodes (promote)
+- Warns (no fix): decision nodes with <2 outgoing edges, orphaned nodes
 - All fixes logged: `[validate] ...`
 
-### Pipeline logs to watch in console
-| Tag | Meaning |
-|-----|---------|
-| `[pipeline] starting generation` | New message sent |
-| `[pipeline] final parse` | Stream ended, parsing full Mermaid |
-| `[pipeline] validate+fix: clean` | Chart is structurally valid |
-| `[pipeline] chart mode: patch` | Editing an existing chart |
-| `[pipeline] response does not look like Mermaid` | Model output unexpected |
-| `[live] +N node(s), +N edge(s)` | Live preview updating chart |
-| `[mermaid] line "..."` | Each parsed line during final parse |
-| `[layout] computeLayout` | Layout engine input |
-| `[layout] ranks: n1=r0, n2=r1, ...` | BFS rank assignment result |
-| `[layout] fit-to-view triggered` | Viewport auto-refitted |
-| `[ollama] mode=generator\|patcher` | Which system prompt was used |
+### `qualityPipeline.ts` — `sanitizeMermaidSyntax`
+Pre-processes LLM output before parse: strips code fences, fixes malformed labeled edges (`-->|label|>n2`), splits multiple Mermaid statements accidentally emitted on one line.
+
+## Renderers
+
+Both renderers accept `onRenameNode(nodeId, newText)` and `onRenameEdge(from, to, currentLabel, newLabel)` props wired from `App.tsx`. Both prevent panning (`onPointerDown` returns early) when the click target is a node or edge label.
+
+### Mermaid renderer (`src/components/MermaidRenderer.tsx`)
+- `chartToMermaid(chart)` → strip `title:` line → `mermaid.render()` → inject SVG
+- 300ms debounce on render (avoids floods during live streaming)
+- During streaming: anchors bottom of SVG to 65% of viewport height at comfortable zoom
+- After streaming: fit-to-view
+- **Node editing**: `dblclick` DOM listener on container; walks up from target to `.node`, matches to chart node via `mermaidNodeMatches(el, n.id)`, positions HTML `<input>` overlay using `getBoundingClientRect()`
+- **Edge label editing**: same `dblclick` listener walks to `.edgeLabel`, matches by `textContent === edge.label`, positions overlay; `.edgeLabel` excluded from pan start
+- `EditingState` is a discriminated union `{ kind: "node" | "edge", ... }`
+
+### Custom SVG renderer (`src/components/Flowchart/`)
+- `layout.ts` — **Dagre layout** (`dagre` npm package). `isBack` detected as `dstNode.y < srcNode.y` (TB) or `dstNode.x < srcNode.x` (LR).
+- `NodeShape.tsx` — 10 SVG shapes; accepts `onDoubleClick` prop (sets `cursor: text`)
+- `EdgePath.tsx` — Catmull-Rom → Bézier curves with arrowheads; labeled edges have `data-edge-label` attribute and `onLabelDoubleClick(clientX, clientY)` prop; transparent hit-rect uses `pointerEvents="all"`
+- `index.tsx` — pan (pointer capture), zoom (wheel toward cursor)
+  - During streaming: follows the bottom-most node (max y) at scale 0.75, anchored to 65% of viewport height
+  - After streaming: fit-to-view on first content, first edges, or >40% height growth
+  - **Node editing**: `startEdit(nodeId, text)` sets `editingNodeId`; HTML `<input>` overlay positioned via `(node.x * scale + vp.x, node.y * scale + vp.y)`
+  - **Edge editing**: `setEditingEdge({ from, to, currentLabel, value, screenX, screenY })`; overlay positioned at click coordinates; `[data-edge-label]` excluded from pan start
+
+Both renderers read `useStreamingStore.isStreaming` to switch between follow-last-node and fit-to-view behavior.
 
 ## Sidebar / File Management
 
 - Vault root: `~/Documents/thought-flow/` (created on first launch)
-- `FileExplorer.tsx` — manages vault state, mounts `ExplorerCtx`
-- `TreeNode.tsx` — file click calls `openTab`; folders lazy-load on expand
-- `dnd.ts` — pointer-based drag-and-drop (HTML5 DnD broken on WebKitGTK/Linux)
-- `ContextMenu.tsx` — right-click rename/delete/create
+- `src/components/sidebar/FileExplorer.tsx` — manages vault state, mounts `ExplorerCtx`
+- `src/components/sidebar/TreeNode.tsx` — file click calls `openTab`; folders lazy-load on expand
+- `src/components/sidebar/dnd.ts` — pointer-based drag-and-drop (HTML5 DnD broken on WebKitGTK/Linux)
+- `src/components/sidebar/ContextMenu.tsx` — right-click rename/delete/create
+
+## Key Console Log Tags
+
+| Tag | Source | Meaning |
+|-----|--------|---------|
+| `[pipeline] starting generation` | ChatPanel | New message sent |
+| `[pipeline] final parse` | ChatPanel | Stream ended, parsing full Mermaid |
+| `[pipeline] validate+fix:` | ChatPanel | Result of validateAndFix |
+| `[pipeline] chart mode: patch` | ChatPanel | Editing an existing chart |
+| `[quality:generation/validation/enhancer/finalize]` | qualityPipeline | Quality mode stage output |
+| `[live] +N node(s)` | ChatPanel | Live preview chart update (speed mode, new charts only) |
+| `[mermaid] rendered` | MermaidRenderer | mermaid.js render complete |
+| `[mermaid] fit-to-view` | MermaidRenderer | Viewport auto-refitted |
+
+## Gotchas
+
+- `chartToMermaid` emits `title: ...` — mermaid.js rejects it. `MermaidRenderer.toMermaidJs()` strips it.
+- Node labels must be double-quoted in Mermaid: `n2["Label"]`. The system prompt enforces this.
+- `node.text` in `ChartGraph` does **not** include surrounding quotes — `mermaidText()` adds them on serialization.
+- Speed mode live preview is suppressed in patch mode (`isPatchMode = !!(activeTab.chart)`). The existing chart stays visible until the final validated parse.
+- `completeLLM` accepts an optional `onChunk` 4th arg — used by quality pipeline to stream tokens for live canvas updates per stage. Callers that don't need streaming can omit it.
+- `renameNode` / `renameEdge` in `tabStore` update the last assistant message (if it contains `"graph "`) with the freshly serialized chart. This keeps the patcher prompt consistent and prevents LLM from reverting manual renames.
+- Edge label double-click works by matching `edgeLabelEl.textContent.trim()` to `edge.label`. If two edges share the same label text, the first match wins.
+- `[data-node]` and `[data-edge-label]` SVG attributes gate pan-start in the custom renderer. `[.node]` and `[.edgeLabel]` CSS classes gate pan-start in the Mermaid renderer.
