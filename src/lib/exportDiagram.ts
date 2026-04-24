@@ -1,6 +1,7 @@
 import type { ChartGraph } from "./chart/types";
+import { renderAscii } from "./asciiExport";
 
-export type ExportFormat = "svg" | "html" | "png" | "pdf";
+export type ExportFormat = "svg" | "html" | "png" | "pdf" | "ascii";
 
 const STYLE_PROPS = [
   "fill",
@@ -180,6 +181,7 @@ function standaloneHtml(title: string, svgXml: string, chart: ChartGraph | null)
       height: auto;
       transform-origin: 0 0;
       user-select: none;
+      overflow: visible !important;
     }
 
     svg [data-node] text,
@@ -196,8 +198,13 @@ function standaloneHtml(title: string, svgXml: string, chart: ChartGraph | null)
     svg .export-active ellipse,
     svg .export-active path {
       stroke: var(--chart-text) !important;
-      stroke-width: 3px !important;
-      stroke-dasharray: 6 4;
+      stroke-width: 4px !important;
+      stroke-dasharray: 6 3;
+      filter: drop-shadow(0 0 5px var(--chart-text));
+    }
+
+    svg * {
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.2s ease, filter 0.2s ease;
     }
 
     #controls {
@@ -227,7 +234,19 @@ function standaloneHtml(title: string, svgXml: string, chart: ChartGraph | null)
     }
 
     #controls button:hover {
-      filter: brightness(1.08);
+      filter: brightness(1.15);
+      border-color: var(--chart-text);
+    }
+
+    #controls button:active {
+      filter: brightness(0.9);
+      transform: translateY(1px);
+    }
+
+    #controls button.active {
+      background: var(--chart-text);
+      color: var(--chart-bg);
+      border-color: var(--chart-text);
     }
   </style>
 </head>
@@ -236,10 +255,7 @@ function standaloneHtml(title: string, svgXml: string, chart: ChartGraph | null)
 ${bodySvg}
 </div>
 <div id="controls" aria-label="Playback controls">
-  <button id="fit" title="Fit view">Fit</button>
-  <button id="prev" title="Previous node">Prev</button>
-  <button id="play" title="Start playback">Play</button>
-  <button id="next" title="Next node">Next</button>
+  <button id="play" title="Start/Stop playback (Arrow keys to navigate)">Play</button>
 </div>
 <script>
 (() => {
@@ -247,10 +263,7 @@ ${bodySvg}
   const svg = stage?.querySelector("svg");
   if (!stage || !svg) return;
   const controls = {
-    fit: document.getElementById("fit"),
-    prev: document.getElementById("prev"),
     play: document.getElementById("play"),
-    next: document.getElementById("next"),
   };
   const graph = ${graphJson};
   const nodes = graph.nodes
@@ -269,6 +282,37 @@ ${bodySvg}
   let startTy = 0;
   let activeId = null;
   let activeIndex = -1;
+  const chartTitle = "${escapeHtml(title)}";
+
+  function setupTitle() {
+    const startNode = nodes.find(n => n.getAttribute('data-export-node-id') === 'n1' || n.getAttribute('data-node') === 'n1') || nodes[0];
+    if (!startNode || !chartTitle) return;
+    
+    // Get absolute screen positions
+    const nodeRect = startNode.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    
+    // Calculate the current effective scale of the SVG relative to the screen
+    // (This accounts for the CSS transform translate/scale we apply)
+    const st = window.getComputedStyle(svg);
+    const matrix = new DOMMatrix(st.transform);
+    const currentScale = matrix.a || 1;
+    
+    // Map screen coordinates back to SVG internal coordinate space
+    const centerX = (nodeRect.left + nodeRect.width / 2 - svgRect.left) / currentScale;
+    const topY = (nodeRect.top - svgRect.top) / currentScale;
+    
+    const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    titleEl.textContent = chartTitle;
+    titleEl.setAttribute("x", centerX);
+    titleEl.setAttribute("y", topY - 60);
+    titleEl.setAttribute("text-anchor", "middle");
+    titleEl.setAttribute("fill", "var(--chart-text)");
+    titleEl.setAttribute("font-size", "48px");
+    titleEl.setAttribute("font-weight", "900");
+    titleEl.setAttribute("style", "pointer-events: none; opacity: 0.95; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); font-family: inherit;");
+    svg.appendChild(titleEl);
+  }
 
   function svgSize() {
     const viewBox = svg.viewBox?.baseVal;
@@ -306,12 +350,16 @@ ${bodySvg}
 
   function startPlayMode() {
     if (activeIndex < 0) setActiveByIndex(0);
+    controls.play.textContent = "Stop";
+    controls.play.classList.add("active");
   }
 
   function stopPlayMode() {
     activeId = null;
     activeIndex = -1;
     for (const node of nodes) node.classList.remove("export-active");
+    controls.play.textContent = "Play";
+    controls.play.classList.remove("active");
   }
 
   function childIds(id) {
@@ -347,10 +395,11 @@ ${bodySvg}
   function fit() {
     const { width, height } = svgSize();
     const pad = 48;
-    scale = Math.min((stage.clientWidth - pad * 2) / width, (stage.clientHeight - pad * 2) / height, 1);
+    const topPad = chartTitle ? 120 : 48; // Extra space for title
+    scale = Math.min((stage.clientWidth - pad * 2) / width, (stage.clientHeight - topPad - pad) / height, 1);
     if (!Number.isFinite(scale) || scale <= 0) scale = 1;
     tx = (stage.clientWidth - width * scale) / 2;
-    ty = (stage.clientHeight - height * scale) / 2;
+    ty = (stage.clientHeight - height * scale) / 2 + (chartTitle ? 30 * scale : 0);
     apply();
   }
 
@@ -395,9 +444,6 @@ ${bodySvg}
   }, { passive: false });
 
   stage.addEventListener("dblclick", fit);
-  controls.fit?.addEventListener("click", fit);
-  controls.next?.addEventListener("click", nextChild);
-  controls.prev?.addEventListener("click", previousParent);
   controls.play?.addEventListener("click", () => activeIndex < 0 ? startPlayMode() : stopPlayMode());
 
   window.addEventListener("keydown", (event) => {
@@ -420,6 +466,7 @@ ${bodySvg}
   });
 
   window.addEventListener("resize", fit);
+  setupTitle();
   fit();
 })();
 </script>
@@ -818,12 +865,47 @@ function svgSize(svg: SVGSVGElement) {
   return { width, height };
 }
 
+function injectExportTitle(sourceSvg: SVGSVGElement, cloneSvg: SVGSVGElement, chart: ChartGraph) {
+  const title = chart.meta?.title;
+  if (!title || title === "Untitled") return;
+  if (cloneSvg.querySelector("[data-chart-title]")) return; // custom renderer already has it
+
+  const startNodeId = chart.nodes.find((n) => n.type === "start")?.id ?? chart.nodes[0]?.id;
+  if (!startNodeId) return;
+
+  const nodeEl = Array.from(sourceSvg.querySelectorAll<SVGElement>(".node"))
+    .find((el) => mermaidNodeMatches(el, startNodeId));
+  if (!nodeEl) return;
+
+  const m = nodeEl.getAttribute("transform")?.match(/translate\(([-\d.]+)[,\s]+([-\d.]+)\)/);
+  if (!m) return;
+  const nx = parseFloat(m[1]);
+  const ny = parseFloat(m[2]);
+  let nodeHeight = 34;
+  try { nodeHeight = (nodeEl as SVGGraphicsElement).getBBox().height; } catch { /* ignore */ }
+
+  const color = chartTextColor();
+  const textEl = document.createElementNS(SVG_NS, "text");
+  textEl.setAttribute("x", String(nx));
+  textEl.setAttribute("y", String(ny - nodeHeight / 2 - 15));
+  textEl.setAttribute("text-anchor", "middle");
+  textEl.setAttribute("dominant-baseline", "auto");
+  textEl.setAttribute("font-size", "22");
+  textEl.setAttribute("font-weight", "700");
+  textEl.setAttribute("fill", color);
+  textEl.style.setProperty("fill", color);
+  textEl.style.setProperty("opacity", "0.9");
+  textEl.textContent = title;
+  cloneSvg.appendChild(textEl);
+}
+
 function prepareSvg(svg: SVGSVGElement, chart: ChartGraph | null) {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   copyComputedStyles(svg, clone);
   cssTransformToSvgAttributes(clone);
   annotateExportNodeIds(clone, chart);
   convertForeignObjectLabels(svg, clone);
+  if (chart) injectExportTitle(svg, clone, chart);
 
   const { width, height } = svgSize(svg);
   const labels = collectRasterLabels(svg, width, height);
@@ -983,6 +1065,12 @@ export async function exportDiagram(container: HTMLElement | null, title: string
 
   if (format === "html") {
     downloadBlob(new Blob([standaloneHtml(title, prepared.xml, chart)], { type: "text/html;charset=utf-8" }), `${filename}.html`);
+    return;
+  }
+
+  if (format === "ascii") {
+    const text = renderAscii(chart ?? { nodes: [], edges: [], meta: { title, direction: "vertical", version: "1.0", type: "flowchart" }, styles: { classes: {}, nodeStyles: {}, edgeStyles: {} }, extensions: {} });
+    downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), `${filename}.txt`);
     return;
   }
 

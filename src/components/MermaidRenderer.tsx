@@ -35,7 +35,7 @@ function clipboardThemeTokens() {
 // ── SVG size from mermaid output ──────────────────────────────
 
 function parseSvgSize(svgStr: string): { w: number; h: number } | null {
-  const vb = svgStr.match(/viewBox="[\d.]+ [\d.]+ ([\d.]+) ([\d.]+)"/);
+  const vb = svgStr.match(/viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/);
   if (vb) return { w: parseFloat(vb[1]), h: parseFloat(vb[2]) };
   const ew = svgStr.match(/\swidth="([\d.]+)"/);
   const eh = svgStr.match(/\sheight="([\d.]+)"/);
@@ -53,6 +53,7 @@ function toMermaidJs(chart: ChartGraph): string {
     .filter((l) => !l.startsWith("title:"))
     .join("\n");
 }
+
 
 function useMermaidSvg(chart: ChartGraph | null, isDark: boolean, theme: string): string {
   const [svg, setSvg] = useState("");
@@ -199,9 +200,9 @@ function setMermaidNodeHighlight(el: Element, active: boolean) {
 
   for (const shape of Array.from(el.querySelectorAll<SVGElement>(NODE_SHAPE_SELECTOR))) {
     if (active) {
-      shape.style.setProperty("stroke", "var(--chart-node-bg)", "important");
-      shape.style.setProperty("stroke-width", "3px", "important");
-      shape.style.setProperty("stroke-dasharray", "5 2", "important");
+      shape.style.setProperty("stroke", "var(--chart-text)", "important");
+      shape.style.setProperty("stroke-width", "3.5px", "important");
+      shape.style.setProperty("stroke-dasharray", "6 3", "important");
     } else {
       shape.style.removeProperty("stroke");
       shape.style.removeProperty("stroke-width");
@@ -221,13 +222,15 @@ interface MermaidRendererProps {
   chart: ChartGraph | null;
   onRenameNode?: (nodeId: string, newText: string) => void;
   onRenameEdge?: (from: string, to: string, currentLabel: string, newLabel: string) => void;
+  onRenameTitle?: (newTitle: string) => void;
 }
 
 type EditingState =
   | { kind: "node"; nodeId: string; text: string; left: number; top: number; width: number; height: number }
-  | { kind: "edge"; from: string; to: string; currentLabel: string; text: string; left: number; top: number; width: number; height: number };
+  | { kind: "edge"; from: string; to: string; currentLabel: string; text: string; left: number; top: number; width: number; height: number }
+  | { kind: "title"; text: string; left: number; top: number; width: number; height: number };
 
-export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRendererProps) {
+export function MermaidRenderer({ chart, onRenameNode, onRenameEdge, onRenameTitle }: MermaidRendererProps) {
   const { theme, colorMode } = useSettingsStore();
   const isDark = colorMode === "dark";
   const { isStreaming } = useStreamingStore();
@@ -245,6 +248,37 @@ export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRe
   vpRef.current = vp;
 
   const size = useMemo(() => parseSvgSize(svg), [svg]);
+
+  // Compute the title's position in div-local coords (1 unit = 1 CSS pixel in the SVG div).
+  // Done via live DOM query so getBBox() works; updated whenever the SVG re-renders.
+  const [titleInfo, setTitleInfo] = useState<{ divX: number; divY: number } | null>(null);
+  useEffect(() => {
+    if (!svg || !chart || !containerRef.current) { setTitleInfo(null); return; }
+    const title = chart.meta?.title;
+    if (!title || title === "Untitled") { setTitleInfo(null); return; }
+
+    const svgEl = containerRef.current.querySelector("svg");
+    if (!svgEl) { setTitleInfo(null); return; }
+
+    const vbMatch = svg.match(/viewBox="([-\d.]+)\s+([-\d.]+)\s+([\d.]+)\s+([\d.]+)"/);
+    const vbX = vbMatch ? parseFloat(vbMatch[1]) : 0;
+    const vbY = vbMatch ? parseFloat(vbMatch[2]) : 0;
+
+    const startNodeId = chart.nodes.find((n) => n.type === "start")?.id ?? chart.nodes[0]?.id ?? "";
+    for (const el of Array.from(svgEl.querySelectorAll<SVGGElement>(".node"))) {
+      if (!mermaidNodeMatches(el, startNodeId)) continue;
+      const m = el.getAttribute("transform")?.match(/translate\(([-\d.]+)[,\s]+([-\d.]+)\)/);
+      if (!m) break;
+      const nx = parseFloat(m[1]);
+      const ny = parseFloat(m[2]);
+      let nodeHeight = 34;
+      try { nodeHeight = el.getBBox().height; } catch { /* not rendered yet */ }
+      // div-local coords = SVG user coords − viewBox origin (div is sized = viewBox dimensions)
+      setTitleInfo({ divX: nx - vbX, divY: ny - nodeHeight / 2 - 24 - vbY });
+      return;
+    }
+    setTitleInfo(null);
+  }, [svg, chart]);
 
   // Follow latest content during streaming; fit-to-view when done.
   useEffect(() => {
@@ -395,15 +429,17 @@ export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRe
     const trimmed = editingState.text.trim();
     if (editingState.kind === "node") {
       if (trimmed) onRenameNode?.(editingState.nodeId, trimmed);
-    } else {
+    } else if (editingState.kind === "edge") {
       onRenameEdge?.(editingState.from, editingState.to, editingState.currentLabel, trimmed);
+    } else {
+      if (trimmed) onRenameTitle?.(trimmed);
     }
     setEditingState(null);
   }
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || (!onRenameNode && !onRenameEdge)) return;
+    if (!container || (!onRenameNode && !onRenameEdge && !onRenameTitle)) return;
 
     function handleDblClick(e: MouseEvent) {
       const target = e.target as Element;
@@ -444,9 +480,10 @@ export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRe
     if (editingState) { setEditingState(null); return; }
     // Don't start panning if clicking on the control buttons
     if ((e.target as HTMLElement).closest('button')) return;
-    // Don't start panning when clicking on a node or edge label (double-click targets)
+    // Don't start panning when clicking on a node, edge label, or chart title
     if ((e.target as Element).closest('.node')) return;
     if ((e.target as Element).closest('.edgeLabel')) return;
+    if ((e.target as Element).closest('[data-chart-title]')) return;
     
     isPanning.current = true;
     panStart.current  = { x: e.clientX, y: e.clientY, vpX: vpRef.current.x, vpY: vpRef.current.y };
@@ -542,6 +579,41 @@ export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRe
         />
       )}
 
+      {/* HTML title overlay — follows the chart via the same vp transform */}
+      {titleInfo && size && chart && chart.meta.title !== "Untitled" && (() => {
+        const x = vp.x + titleInfo.divX * vp.scale;
+        const y = vp.y + titleInfo.divY * vp.scale;
+        return (
+          <div
+            data-chart-title="true"
+            style={{
+              position: "absolute",
+              left: x,
+              top: y,
+              transform: "translateX(-50%)",
+              fontSize: Math.max(11, 22 * vp.scale),
+              fontWeight: 700,
+              color: "var(--chart-text)",
+              whiteSpace: "nowrap",
+              userSelect: "none",
+              opacity: 0.9,
+              cursor: onRenameTitle ? "text" : "default",
+              lineHeight: 1,
+              zIndex: 1,
+            }}
+            onDoubleClick={onRenameTitle ? (e) => {
+              e.stopPropagation();
+              const containerRect = containerRef.current!.getBoundingClientRect();
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const w = Math.max(r.width + 40, 240);
+              setEditingState({ kind: "title", text: chart.meta.title, left: r.left - containerRect.left + r.width / 2 - w / 2, top: r.top - containerRect.top, width: w, height: Math.max(r.height, 28) });
+            } : undefined}
+          >
+            {chart.meta.title}
+          </div>
+        );
+      })()}
+
       {activeBounds && (
         <svg
           className="absolute pointer-events-none overflow-visible"
@@ -607,6 +679,7 @@ export function MermaidRenderer({ chart, onRenameNode, onRenameEdge }: MermaidRe
           <ControlBtn 
             onClick={activeNodeId ? () => setActiveNodeId(null) : startNavigation} 
             title={activeNodeId ? "Stop Playback" : "Start Playback (Arrow keys to navigate)"}
+            active={!!activeNodeId}
           >
             {activeNodeId ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
           </ControlBtn>
@@ -663,6 +736,7 @@ function ExportMenu({
           {([
             "svg",
             "html",
+            "ascii",
             // "png",
             // "pdf",
           ] as ExportFormat[]).map((format) => (
@@ -680,12 +754,16 @@ function ExportMenu({
   );
 }
 
-function ControlBtn({ onClick, children, title }: { onClick: () => void; children: React.ReactNode; title?: string }) {
+function ControlBtn({ onClick, children, title, active }: { onClick: () => void; children: React.ReactNode; title?: string; active?: boolean }) {
   return (
     <button
       onClick={onClick}
       title={title}
-      className="w-7 h-7 flex items-center justify-center rounded bg-primary border border-border text-muted-foreground hover:text-foreground hover:bg-secondary text-[14px] leading-none cursor-default"
+      className={`w-7 h-7 flex items-center justify-center rounded border transition-colors cursor-default ${
+        active 
+          ? "bg-ring text-background border-ring" 
+          : "bg-primary border-border text-muted-foreground hover:text-foreground hover:bg-secondary"
+      }`}
     >
       {children}
     </button>

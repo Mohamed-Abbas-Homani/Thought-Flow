@@ -56,11 +56,12 @@ interface FlowchartProps {
   error?: string | null;
   onRenameNode?: (nodeId: string, newText: string) => void;
   onRenameEdge?: (from: string, to: string, currentLabel: string, newLabel: string) => void;
+  onRenameTitle?: (newTitle: string) => void;
 }
 
 interface EdgeEdit { from: string; to: string; currentLabel: string; value: string; screenX: number; screenY: number; }
 
-export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: FlowchartProps) {
+export function Flowchart({ chart, error, onRenameNode, onRenameEdge, onRenameTitle }: FlowchartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [vp, setVp]  = useState<Viewport>({ x: 40, y: 40, scale: 1 });
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
@@ -69,6 +70,8 @@ export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: Flowchar
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [editingEdge, setEditingEdge] = useState<EdgeEdit | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingTitleValue, setEditingTitleValue] = useState("");
   const vpRef        = useRef(vp);
   vpRef.current = vp;
 
@@ -78,6 +81,11 @@ export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: Flowchar
     () => (chart ? computeLayout(chart) : null),
     [chart]
   );
+
+  const titleNode = useMemo(() => {
+    if (!layout || !chart?.meta.title || chart.meta.title === "Untitled") return null;
+    return layout.nodes.find((n) => n.type === "start") ?? layout.nodes[0] ?? null;
+  }, [layout, chart]);
 
   const prevNodeCount = useRef(0);
   const prevEdgeCount = useRef(0);
@@ -138,12 +146,20 @@ export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: Flowchar
     setEditingEdge(null);
   }
 
+  function commitTitleEdit() {
+    const text = editingTitleValue.trim();
+    if (text) onRenameTitle?.(text);
+    setEditingTitle(false);
+  }
+
   const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
     if (editingNodeId) { setEditingNodeId(null); setEditingValue(""); return; }
     if (editingEdge) { setEditingEdge(null); return; }
+    if (editingTitle) { setEditingTitle(false); return; }
     if ((e.target as SVGElement).closest("[data-node]")) return;
     if ((e.target as SVGElement).closest("[data-edge-label]")) return;
+    if ((e.target as SVGElement).closest("[data-chart-title]")) return;
     isPanning.current = true;
     panStart.current  = { x: e.clientX, y: e.clientY, vpX: vp.x, vpY: vp.y };
     (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
@@ -294,6 +310,26 @@ export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: Flowchar
         >
           {hasContent && (
             <>
+              {titleNode && chart && (
+                <text
+                  data-chart-title="true"
+                  x={titleNode.x}
+                  y={titleNode.y - titleNode.h / 2 - 24}
+                  textAnchor="middle"
+                  dominantBaseline="auto"
+                  fontSize={22}
+                  fontWeight="700"
+                  fill="var(--chart-text)"
+                  style={{ userSelect: "none", opacity: 0.9, cursor: onRenameTitle ? "text" : undefined }}
+                  onDoubleClick={onRenameTitle ? (e) => {
+                    e.stopPropagation();
+                    setEditingTitle(true);
+                    setEditingTitleValue(chart.meta.title);
+                  } : undefined}
+                >
+                  {chart.meta.title}
+                </text>
+              )}
               {layout.edges.map((edge, i) => (
                 <EdgePath
                   key={`${edge.from}→${edge.to}→${i}`}
@@ -386,6 +422,37 @@ export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: Flowchar
         />
       )}
 
+      {editingTitle && titleNode && (
+        <input
+          autoFocus
+          value={editingTitleValue}
+          onChange={(e) => setEditingTitleValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commitTitleEdit(); }
+            if (e.key === "Escape") setEditingTitle(false);
+          }}
+          onBlur={commitTitleEdit}
+          style={{
+            position: "absolute",
+            left: titleNode.x * vp.scale + vp.x - 120,
+            top:  (titleNode.y - titleNode.h / 2 - 24) * vp.scale + vp.y - 14,
+            width: 240,
+            height: 28,
+            textAlign: "center",
+            fontSize: Math.max(13, 22 * vp.scale),
+            fontWeight: 700,
+            background: "var(--chart-node-bg)",
+            color: "var(--chart-text)",
+            border: "2px solid var(--chart-node-border)",
+            borderRadius: 6,
+            outline: "none",
+            padding: "0 8px",
+            zIndex: 10,
+            boxShadow: "0 0 0 2px var(--chart-bg), 0 0 0 4px var(--chart-edge)",
+          }}
+        />
+      )}
+
       {error && (
         <div className="absolute bottom-3 left-3 right-3 bg-background/90 border border-error/40 rounded-md px-3 py-2 text-[12px] font-mono text-error backdrop-blur-sm">
           {error}
@@ -403,6 +470,7 @@ export function Flowchart({ chart, error, onRenameNode, onRenameEdge }: Flowchar
           <ControlBtn 
             onClick={activeNodeId ? () => setActiveNodeId(null) : startNavigation} 
             title={activeNodeId ? "Stop Playback" : "Start Playback (Arrow keys to navigate)"}
+            active={!!activeNodeId}
           >
             {activeNodeId ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
           </ControlBtn>
@@ -471,6 +539,7 @@ function ExportMenu({
           {([
             "svg",
             "html",
+            "ascii",
             // "png",
             // "pdf",
           ] as ExportFormat[]).map((format) => (
@@ -488,12 +557,16 @@ function ExportMenu({
   );
 }
 
-function ControlBtn({ onClick, children, title }: { onClick: () => void; children: React.ReactNode; title?: string }) {
+function ControlBtn({ onClick, children, title, active }: { onClick: () => void; children: React.ReactNode; title?: string; active?: boolean }) {
   return (
     <button
       onClick={onClick}
       title={title}
-      className="w-7 h-7 flex items-center justify-center rounded bg-primary border border-border text-muted-foreground hover:text-foreground hover:bg-secondary text-[14px] leading-none cursor-default"
+      className={`w-7 h-7 flex items-center justify-center rounded border transition-colors cursor-default ${
+        active 
+          ? "bg-ring text-background border-ring" 
+          : "bg-primary border-border text-muted-foreground hover:text-foreground hover:bg-secondary"
+      }`}
     >
       {children}
     </button>

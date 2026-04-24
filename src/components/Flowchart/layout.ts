@@ -80,9 +80,9 @@ export function computeLayout(chart: ChartGraph): Layout {
 
   const g = new dagre.graphlib.Graph();
   g.setGraph({
-    rankdir: dir === "horizontal" ? "LR" : "TB",
+    rankdir: "TB", // LR disabled
     marginx: 40,
-    marginy: 40,
+    marginy: 80, // extra top margin accommodates the chart title
     ranksep: 80,
     nodesep: 48,
     edgesep: 15,

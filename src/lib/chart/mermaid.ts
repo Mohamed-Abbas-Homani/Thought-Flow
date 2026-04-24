@@ -140,10 +140,8 @@ export function parseMermaidLine(line: string): LineResult {
   const trimmed = line.trim();
 
   if (!trimmed || trimmed.startsWith("%%") || trimmed.startsWith("graph ")) {
-    if (trimmed.startsWith("graph LR") || trimmed.startsWith("graph RL")) {
-      result.direction = "horizontal";
-    } else if (trimmed.startsWith("graph ")) {
-      result.direction = "vertical";
+    if (trimmed.startsWith("graph ")) {
+      result.direction = "vertical"; // LR/RL disabled — always top-down
     }
     return result;
   }
@@ -291,9 +289,8 @@ export function mermaidToChart(text: string): ChartGraph {
 // ─── chartToMermaid ───────────────────────────────────────────────────────────
 
 export function chartToMermaid(chart: ChartGraph): string {
-  const dir = chart.meta.direction === "horizontal" ? "LR" : "TD";
   const lines: string[] = [
-    `graph ${dir}`,
+    "graph TD",
     `title: ${chart.meta.title}`,
   ];
 

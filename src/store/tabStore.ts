@@ -52,6 +52,7 @@ interface TabStore {
   applyChartTheme: (path: string, tokens: ChartThemeTokens) => Promise<void>;
   renameNode:    (path: string, nodeId: string, newText: string) => Promise<void>;
   renameEdge:    (path: string, from: string, to: string, currentLabel: string, newLabel: string) => Promise<void>;
+  renameTitle:   (path: string, newTitle: string) => Promise<void>;
   saveTab:       (path: string) => Promise<void>;
 }
 
@@ -242,6 +243,25 @@ export const useTabStore = create<TabStore>((set, get) => ({
             return e;
           }),
         };
+        const newMermaid = chartToMermaid(chart);
+        let lastAssistantIdx = -1;
+        for (let i = t.messages.length - 1; i >= 0; i--) {
+          if (t.messages[i].role === "assistant") { lastAssistantIdx = i; break; }
+        }
+        const messages = lastAssistantIdx >= 0 && t.messages[lastAssistantIdx].content.includes("graph ")
+          ? t.messages.map((m, i) => i === lastAssistantIdx ? { ...m, content: newMermaid } : m)
+          : t.messages;
+        return { ...t, chart, messages, isDirty: true };
+      }),
+    }));
+    await get().saveTab(path);
+  },
+
+  renameTitle: async (path, newTitle) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.path !== path || !t.chart) return t;
+        const chart = { ...t.chart, meta: { ...t.chart.meta, title: newTitle } };
         const newMermaid = chartToMermaid(chart);
         let lastAssistantIdx = -1;
         for (let i = t.messages.length - 1; i >= 0; i--) {

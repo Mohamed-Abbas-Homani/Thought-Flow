@@ -206,9 +206,9 @@ export function NodeShape({ node, focused, onDoubleClick }: NodeShapeProps) {
           width={w + 12}  height={h + 12}
           rx={10}
           fill="none"
-          stroke="var(--chart-node-bg)"
-          strokeWidth={2}
-          strokeDasharray="5 3"
+          stroke="var(--chart-text)"
+          strokeWidth={2.5}
+          strokeDasharray="6 3"
           opacity={0.75}
         />
       )}

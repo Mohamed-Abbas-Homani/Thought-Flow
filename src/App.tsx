@@ -21,7 +21,7 @@ function App() {
   const { sidebarOpen, toggleSidebar, chatOpen, toggleChat } = useLayoutStore();
   const [renderer, setRenderer] = useState<RendererMode>("mermaid");
 
-  const { tabs, activeTabPath, renameNode, renameEdge } = useTabStore();
+  const { tabs, activeTabPath, renameNode, renameEdge, renameTitle } = useTabStore();
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
 
   function handleRenameNode(nodeId: string, newText: string) {
@@ -30,6 +30,10 @@ function App() {
 
   function handleRenameEdge(from: string, to: string, currentLabel: string, newLabel: string) {
     if (activeTabPath) renameEdge(activeTabPath, from, to, currentLabel, newLabel);
+  }
+
+  function handleRenameTitle(newTitle: string) {
+    if (activeTabPath) renameTitle(activeTabPath, newTitle);
   }
 
   return (
@@ -46,9 +50,9 @@ function App() {
         <main className="flex-1 overflow-hidden relative">
           {activeTab ? (
             renderer === "mermaid" ? (
-              <MermaidRenderer key={activeTab.path} chart={activeTab.chart} onRenameNode={handleRenameNode} onRenameEdge={handleRenameEdge} />
+              <MermaidRenderer key={activeTab.path} chart={activeTab.chart} onRenameNode={handleRenameNode} onRenameEdge={handleRenameEdge} onRenameTitle={handleRenameTitle} />
             ) : (
-              <Flowchart key={activeTab.path} chart={activeTab.chart} onRenameNode={handleRenameNode} onRenameEdge={handleRenameEdge} />
+              <Flowchart key={activeTab.path} chart={activeTab.chart} onRenameNode={handleRenameNode} onRenameEdge={handleRenameEdge} onRenameTitle={handleRenameTitle} />
             )
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-muted-foreground/30 text-[13px] pointer-events-none select-none">
