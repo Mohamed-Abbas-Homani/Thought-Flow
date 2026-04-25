@@ -8,7 +8,12 @@ import { ContextMenu } from "./ContextMenu";
 import { InlineInput } from "./inputs";
 import { TreeNode } from "./TreeNode";
 import { listDir, BORDER } from "./utils";
-import { registerDropTarget, unregisterDropTarget, registerFolderRefresh, unregisterFolderRefresh } from "./dnd";
+import {
+  registerDropTarget,
+  unregisterDropTarget,
+  registerFolderRefresh,
+  unregisterFolderRefresh,
+} from "./dnd";
 import type { FsEntry, CreatingType, CtxMenuDef } from "./types";
 
 export function FileExplorerPanel() {
@@ -34,7 +39,9 @@ export function FileExplorerPanel() {
   const refreshVault = useCallback(async (path: string) => {
     try {
       setEntries(await listDir(path));
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   }, []);
 
   useEffect(() => {
@@ -68,7 +75,7 @@ export function FileExplorerPanel() {
       reloadVault,
       showMenu: (menu: CtxMenuDef) => setCtxMenu(menu),
     }),
-    [dragging, reloadVault]
+    [dragging, reloadVault],
   );
 
   async function handleCreate(name: string, type: CreatingType) {
@@ -86,7 +93,9 @@ export function FileExplorerPanel() {
 
   return (
     <ExplorerCtx.Provider value={ctxValue}>
-      <div className={`flex flex-col h-full overflow-hidden border-r ${BORDER}`}>
+      <div
+        className={`flex flex-col h-full overflow-hidden border-r ${BORDER}`}
+      >
         {/* Header */}
         <div className="px-2 h-[42px] flex items-center justify-center gap-0.5 shrink-0">
           <button
@@ -122,7 +131,13 @@ export function FileExplorerPanel() {
           {creating && vaultPath && (
             <InlineInput
               indent={8}
-              icon={creating === "folder" ? <Folder size={13} /> : <FileText size={13} />}
+              icon={
+                creating === "folder" ? (
+                  <Folder size={13} />
+                ) : (
+                  <FileText size={13} />
+                )
+              }
               onCommit={(name) => handleCreate(name, creating)}
               onCancel={() => setCreating(null)}
             />

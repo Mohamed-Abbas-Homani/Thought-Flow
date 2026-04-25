@@ -10,7 +10,7 @@ interface LayoutState {
   setSidebarWidth: (w: number) => void;
   setSidebarOpen: (o: boolean) => void;
   toggleSidebar: () => void;
-  
+
   setChatWidth: (w: number) => void;
   setChatOpen: (o: boolean) => void;
   toggleChat: () => void;
@@ -34,6 +34,6 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: "thought-flow-layout",
-    }
-  )
+    },
+  ),
 );

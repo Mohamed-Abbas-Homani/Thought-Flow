@@ -3,62 +3,68 @@ import type { ChartGraph, ChartNode, ChartEdge, ChartMeta } from "./types";
 // ─── Shape encoding ───────────────────────────────────────────────────────────
 
 const SHAPE_OPEN: Record<string, string> = {
-  "stadium":      "([",
+  stadium: "([",
   "rounded-rect": "(",
-  "rect":         "[",
-  "diamond":      "{",
-  "hexagon":      "{{",
-  "cylinder":     "[(",
-  "double-circle":"((",
-  "subroutine":   "[[",
-  "flag":         ">",
-  "parallelogram":"[/",
+  rect: "[",
+  diamond: "{",
+  hexagon: "{{",
+  cylinder: "[(",
+  "double-circle": "((",
+  subroutine: "[[",
+  flag: ">",
+  parallelogram: "[/",
 };
 
 const SHAPE_CLOSE: Record<string, string> = {
-  "stadium":      "])",
+  stadium: "])",
   "rounded-rect": ")",
-  "rect":         "]",
-  "diamond":      "}",
-  "hexagon":      "}}",
-  "cylinder":     ")]",
-  "double-circle":"))",
-  "subroutine":   "]]",
-  "flag":         "]",
-  "parallelogram":"/]",
+  rect: "]",
+  diamond: "}",
+  hexagon: "}}",
+  cylinder: ")]",
+  "double-circle": "))",
+  subroutine: "]]",
+  flag: "]",
+  parallelogram: "/]",
 };
 
 // Ordered from most-specific to least-specific (longer delimiters first)
 const NODE_PATTERNS: { open: string; close: string; shape: string }[] = [
-  { open: "([",  close: "])",  shape: "stadium"       },
-  { open: "[(", close: ")]",  shape: "cylinder"       },
-  { open: "((", close: "))",  shape: "double-circle"  },
-  { open: "[[", close: "]]",  shape: "subroutine"     },
-  { open: "{{", close: "}}",  shape: "hexagon"        },
-  { open: "{",  close: "}",   shape: "diamond"        },
-  { open: "[/", close: "/]",  shape: "parallelogram"  },
-  { open: ">",  close: "]",   shape: "flag"           },
-  { open: "(",  close: ")",   shape: "rounded-rect"   },
-  { open: "[",  close: "]",   shape: "rect"           },
+  { open: "([", close: "])", shape: "stadium" },
+  { open: "[(", close: ")]", shape: "cylinder" },
+  { open: "((", close: "))", shape: "double-circle" },
+  { open: "[[", close: "]]", shape: "subroutine" },
+  { open: "{{", close: "}}", shape: "hexagon" },
+  { open: "{", close: "}", shape: "diamond" },
+  { open: "[/", close: "/]", shape: "parallelogram" },
+  { open: ">", close: "]", shape: "flag" },
+  { open: "(", close: ")", shape: "rounded-rect" },
+  { open: "[", close: "]", shape: "rect" },
 ];
 
 const SHAPE_TO_TYPE: Record<string, string> = {
-  "stadium":       "start",   // overridden to "end" when text looks like end
-  "rounded-rect":  "action",
-  "rect":          "action",
-  "diamond":       "decision",
-  "parallelogram": "io",
-  "hexagon":       "loop",
-  "cylinder":      "datastore",
+  stadium: "start", // overridden to "end" when text looks like end
+  "rounded-rect": "action",
+  rect: "action",
+  diamond: "decision",
+  parallelogram: "io",
+  hexagon: "loop",
+  cylinder: "datastore",
   "double-circle": "event",
-  "subroutine":    "subprocess",
-  "flag":          "milestone",
+  subroutine: "subprocess",
+  flag: "milestone",
 };
 
 function inferType(shape: string, text: string): string {
   if (shape === "stadium") {
     const t = text.toLowerCase();
-    if (t === "end" || t === "stop" || t === "finish" || t.startsWith("end ") || t.endsWith(" end")) {
+    if (
+      t === "end" ||
+      t === "stop" ||
+      t === "finish" ||
+      t.startsWith("end ") ||
+      t.endsWith(" end")
+    ) {
       return "end";
     }
     return "start";
@@ -86,19 +92,21 @@ function mermaidText(text: string): string {
 
 function edgeArrow(style: ChartEdge["style"]): string {
   if (style === "dotted") return "-.->";
-  if (style === "thick")  return "==>";
+  if (style === "thick") return "==>";
   return "-->";
 }
 
 function parseArrow(arrow: string): ChartEdge["style"] {
-  if (arrow.startsWith("="))  return "thick";
+  if (arrow.startsWith("=")) return "thick";
   if (arrow.startsWith("-.-")) return "dotted";
   return "solid";
 }
 
 // ─── Parse a node inline definition like: n1([text]) ────────────────────────
 
-function parseInlineNode(segment: string): { id: string; text: string; shape: string } | null {
+function parseInlineNode(
+  segment: string,
+): { id: string; text: string; shape: string } | null {
   const seg = segment.trim();
   const idMatch = seg.match(/^([A-Za-z_][\w]*)/);
   if (!idMatch) return null;
@@ -107,13 +115,20 @@ function parseInlineNode(segment: string): { id: string; text: string; shape: st
 
   for (const { open, close, shape } of NODE_PATTERNS) {
     if (rest.startsWith(open) && rest.endsWith(close)) {
-      const inner = stripOuterQuotes(rest.slice(open.length, rest.length - close.length));
+      const inner = stripOuterQuotes(
+        rest.slice(open.length, rest.length - close.length),
+      );
       return { id, text: inner, shape };
     }
   }
 
   // Bare identifier (no shape brackets) — treat as reference only
-  if (rest === "" || rest.startsWith("-->") || rest.startsWith("-.->") || rest.startsWith("==>")) {
+  if (
+    rest === "" ||
+    rest.startsWith("-->") ||
+    rest.startsWith("-.->") ||
+    rest.startsWith("==>")
+  ) {
     return null; // not a definition
   }
   return null;
@@ -130,7 +145,12 @@ function parseInlineNode(segment: string): { id: string; text: string; shape: st
 
 interface LineResult {
   nodes: Array<{ id: string; text: string; shape: string }>;
-  edges: Array<{ from: string; to: string; style: ChartEdge["style"]; label: string }>;
+  edges: Array<{
+    from: string;
+    to: string;
+    style: ChartEdge["style"];
+    label: string;
+  }>;
   title?: string;
   direction?: "vertical" | "horizontal";
   nodeClass?: { id: string; className: string };
@@ -188,8 +208,15 @@ export function parseMermaidLine(line: string): LineResult {
     // RHS may chain multiple edges; for now extract just the first node
     // Stop at the next arrow
     const nextArrow = rhs.match(arrowRe);
-    const rhsSegment = nextArrow?.index !== undefined ? rhs.slice(0, nextArrow.index).trim() : rhs;
-    const rhsNode = parseInlineNode(rhsSegment) ?? { id: rhsSegment.trim(), text: "", shape: "" };
+    const rhsSegment =
+      nextArrow?.index !== undefined
+        ? rhs.slice(0, nextArrow.index).trim()
+        : rhs;
+    const rhsNode = parseInlineNode(rhsSegment) ?? {
+      id: rhsSegment.trim(),
+      text: "",
+      shape: "",
+    };
     if (rhsNode.text) result.nodes.push(rhsNode);
 
     const fromId = lhsNode.id;
@@ -202,7 +229,9 @@ export function parseMermaidLine(line: string): LineResult {
 
     // Handle chained edges: n1 --> n2 --> n3
     if (nextArrow?.index !== undefined) {
-      const chained = parseMermaidLine(`${rhsSegment}${rhs.slice(nextArrow.index)}`);
+      const chained = parseMermaidLine(
+        `${rhsSegment}${rhs.slice(nextArrow.index)}`,
+      );
       result.nodes.push(...chained.nodes);
       result.edges.push(...chained.edges);
     }
@@ -232,9 +261,16 @@ export function mermaidToChart(text: string): ChartGraph {
   const edgeSet = new Set<string>();
 
   for (const line of text.split("\n")) {
-    const { nodes, edges: lineEdges, title, direction } = parseMermaidLine(line);
+    const {
+      nodes,
+      edges: lineEdges,
+      title,
+      direction,
+    } = parseMermaidLine(line);
     if (nodes.length > 0 || lineEdges.length > 0) {
-      console.log(`[mermaid] line "${line.slice(0, 60)}" → ${nodes.length} node(s), ${lineEdges.length} edge(s)`);
+      console.log(
+        `[mermaid] line "${line.slice(0, 60)}" → ${nodes.length} node(s), ${lineEdges.length} edge(s)`,
+      );
     }
 
     if (title) meta.title = title;
@@ -306,15 +342,12 @@ export function mermaidToChart(text: string): ChartGraph {
 // ─── chartToMermaid ───────────────────────────────────────────────────────────
 
 export function chartToMermaid(chart: ChartGraph): string {
-  const lines: string[] = [
-    "graph TD",
-    `title: ${chart.meta.title}`,
-  ];
+  const lines: string[] = ["graph TD", `title: ${chart.meta.title}`];
 
   for (const node of chart.nodes) {
-    const open  = SHAPE_OPEN[node.shape]  ?? "[";
+    const open = SHAPE_OPEN[node.shape] ?? "[";
     const close = SHAPE_CLOSE[node.shape] ?? "]";
-    const text  = mermaidText(node.text);
+    const text = mermaidText(node.text);
     lines.push(`${node.id}${open}${text}${close}`);
   }
 
@@ -339,7 +372,10 @@ function quoteInitValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function chartToClipboardMermaid(chart: ChartGraph, theme?: MermaidThemeTokens): string {
+export function chartToClipboardMermaid(
+  chart: ChartGraph,
+  theme?: MermaidThemeTokens,
+): string {
   const lines = chartToMermaid(chart)
     .split("\n")
     .filter((line) => !line.startsWith("title:"));
@@ -360,11 +396,13 @@ export function chartToClipboardMermaid(chart: ChartGraph, theme?: MermaidThemeT
   const styledLines = [init, ...lines];
   for (const node of chart.nodes) {
     styledLines.push(
-      `style ${node.id} fill:${theme.chartNodeBg},stroke:${theme.chartNodeBorder},color:${theme.chartText}`
+      `style ${node.id} fill:${theme.chartNodeBg},stroke:${theme.chartNodeBorder},color:${theme.chartText}`,
     );
   }
   chart.edges.forEach((_, index) => {
-    styledLines.push(`linkStyle ${index} stroke:${theme.chartEdge},color:${theme.chartText}`);
+    styledLines.push(
+      `linkStyle ${index} stroke:${theme.chartEdge},color:${theme.chartText}`,
+    );
   });
 
   return styledLines.join("\n");

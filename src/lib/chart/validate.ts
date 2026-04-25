@@ -17,7 +17,9 @@ export function validateAndFix(chart: ChartGraph): ValidationResult {
   edges = edges.filter((e) => {
     const ids = nodeIds();
     if (!ids.has(e.from) || !ids.has(e.to)) {
-      issues.push(`[validate] removed broken edge ${e.from}→${e.to} (node not found)`);
+      issues.push(
+        `[validate] removed broken edge ${e.from}→${e.to} (node not found)`,
+      );
       return false;
     }
     return true;
@@ -57,9 +59,11 @@ export function validateAndFix(chart: ChartGraph): ValidationResult {
     const incomingIds = new Set(edges.map((e) => e.to));
     const candidate = nodes.find((n) => !incomingIds.has(n.id)) ?? nodes[0];
     nodes = nodes.map((n) =>
-      n.id === candidate.id ? { ...n, type: "start", shape: "stadium" } : n
+      n.id === candidate.id ? { ...n, type: "start", shape: "stadium" } : n,
     );
-    issues.push(`[validate] promoted ${candidate.id} "${candidate.text}" to start node`);
+    issues.push(
+      `[validate] promoted ${candidate.id} "${candidate.text}" to start node`,
+    );
   }
 
   // 5. Ensure an end node exists
@@ -68,12 +72,16 @@ export function validateAndFix(chart: ChartGraph): ValidationResult {
     // Promote node with no outgoing edges, or the last node
     const outgoingIds = new Set(edges.map((e) => e.from));
     const candidate =
-      [...nodes].reverse().find((n) => !outgoingIds.has(n.id) && n.type !== "start") ??
+      [...nodes]
+        .reverse()
+        .find((n) => !outgoingIds.has(n.id) && n.type !== "start") ??
       nodes[nodes.length - 1];
     nodes = nodes.map((n) =>
-      n.id === candidate.id ? { ...n, type: "end", shape: "stadium" } : n
+      n.id === candidate.id ? { ...n, type: "end", shape: "stadium" } : n,
     );
-    issues.push(`[validate] promoted ${candidate.id} "${candidate.text}" to end node`);
+    issues.push(
+      `[validate] promoted ${candidate.id} "${candidate.text}" to end node`,
+    );
   }
 
   // 6. Decision nodes must have ≥2 outgoing edges
@@ -83,13 +91,18 @@ export function validateAndFix(chart: ChartGraph): ValidationResult {
   }
   for (const n of nodes) {
     if (n.type === "decision" && (outgoingCount.get(n.id) ?? 0) < 2) {
-      issues.push(`[validate] decision node ${n.id} "${n.text}" has <2 outgoing edges`);
+      issues.push(
+        `[validate] decision node ${n.id} "${n.text}" has <2 outgoing edges`,
+      );
       // Don't auto-fix edges (we don't know where to connect) — just log
     }
   }
 
   // 7. Warn about orphaned nodes (no edges at all)
-  const connectedIds = new Set([...edges.map((e) => e.from), ...edges.map((e) => e.to)]);
+  const connectedIds = new Set([
+    ...edges.map((e) => e.from),
+    ...edges.map((e) => e.to),
+  ]);
   for (const n of nodes) {
     if (!connectedIds.has(n.id) && n.type !== "start" && n.type !== "end") {
       issues.push(`[validate] orphaned node ${n.id} "${n.text}" has no edges`);

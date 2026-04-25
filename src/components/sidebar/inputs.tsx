@@ -6,7 +6,11 @@ interface RenameInputProps {
   onCancel: () => void;
 }
 
-export function RenameInput({ defaultValue, onCommit, onCancel }: RenameInputProps) {
+export function RenameInput({
+  defaultValue,
+  onCommit,
+  onCancel,
+}: RenameInputProps) {
   const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,9 +49,16 @@ interface InlineInputProps {
   onCancel: () => void;
 }
 
-export function InlineInput({ icon, indent, onCommit, onCancel }: InlineInputProps) {
+export function InlineInput({
+  icon,
+  indent,
+  onCommit,
+  onCancel,
+}: InlineInputProps) {
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
 
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -60,7 +71,10 @@ export function InlineInput({ icon, indent, onCommit, onCancel }: InlineInputPro
   }
 
   return (
-    <div style={{ paddingLeft: indent }} className="flex items-center gap-1.5 h-[28px] pr-2">
+    <div
+      style={{ paddingLeft: indent }}
+      className="flex items-center gap-1.5 h-[28px] pr-2"
+    >
       <span className="text-muted-foreground shrink-0">{icon}</span>
       <input
         ref={ref}

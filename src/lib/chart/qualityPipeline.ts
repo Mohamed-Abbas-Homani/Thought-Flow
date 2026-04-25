@@ -1,7 +1,12 @@
 import type { ChartGraph } from "./types";
 import { chartToMermaid, mermaidToChart } from "./mermaid";
 import { validateAndFix } from "./validate";
-import { buildPatcherPrompt, completeLLM, FLOWCHART_SYSTEM_PROMPT, type LLMMessage } from "../llm";
+import {
+  buildPatcherPrompt,
+  completeLLM,
+  FLOWCHART_SYSTEM_PROMPT,
+  type LLMMessage,
+} from "../llm";
 
 export interface QualityPipelineInput {
   history: LLMMessage[];
@@ -9,9 +14,15 @@ export interface QualityPipelineInput {
   currentChart?: ChartGraph | null;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
-  onIntermediateChart?: (chart: ChartGraph, stage: "generation" | "validation" | "enhancer" | "finalize") => void;
+  onIntermediateChart?: (
+    chart: ChartGraph,
+    stage: "generation" | "validation" | "enhancer" | "finalize",
+  ) => void;
   onStageStart?: (stage: "generation" | "validation" | "enhancer") => void;
-  onStreamChunk?: (token: string, stage: "generation" | "validation" | "enhancer") => void;
+  onStreamChunk?: (
+    token: string,
+    stage: "generation" | "validation" | "enhancer",
+  ) => void;
 }
 
 export interface QualityPipelineResult {
@@ -51,10 +62,16 @@ function sanitizeMermaidSyntax(text: string): string {
   raw = raw.replace(/\s+(title:\s*[^\n]+)\s+/i, "\n$1\n");
 
   // Split statements when the model emits multiple Mermaid statements on one line.
-  raw = raw.replace(/([)\]"}])( +)([A-Za-z_][\w]*\s*(?:-->|-\.->|==>|[([{>]))/g, "$1\n$3");
+  raw = raw.replace(
+    /([)\]"}])( +)([A-Za-z_][\w]*\s*(?:-->|-\.->|==>|[([{>]))/g,
+    "$1\n$3",
+  );
 
   // Split after standalone ids that end one edge and start the next statement.
-  raw = raw.replace(/([A-Za-z_][\w]*)( +)([A-Za-z_][\w]*\s*(?:-->|-\.->|==>|[([{>]))/g, "$1\n$3");
+  raw = raw.replace(
+    /([A-Za-z_][\w]*)( +)([A-Za-z_][\w]*\s*(?:-->|-\.->|==>|[([{>]))/g,
+    "$1\n$3",
+  );
 
   return raw
     .split("\n")
@@ -73,7 +90,9 @@ function extractMermaid(text: string, stage: string): string {
 }
 
 function formatCurrentChart(currentChart?: ChartGraph | null): string {
-  return currentChart ? `\nCURRENT CHART:\n${chartToMermaid(currentChart)}` : "";
+  return currentChart
+    ? `\nCURRENT CHART:\n${chartToMermaid(currentChart)}`
+    : "";
 }
 
 async function runStage(
@@ -81,18 +100,27 @@ async function runStage(
   stage: "generation" | "validation" | "enhancer",
   progress: string,
   systemPrompt: string,
-  userContent: string
+  userContent: string,
 ): Promise<string> {
   input.onProgress?.(progress);
   input.onStageStart?.(stage);
   assertNotAborted(input.signal);
-  const onChunk = input.onStreamChunk ? (token: string) => input.onStreamChunk!(token, stage) : undefined;
-  const raw = await completeLLM(systemPrompt, [{ role: "user", content: userContent }], input.signal, onChunk);
+  const onChunk = input.onStreamChunk
+    ? (token: string) => input.onStreamChunk!(token, stage)
+    : undefined;
+  const raw = await completeLLM(
+    systemPrompt,
+    [{ role: "user", content: userContent }],
+    input.signal,
+    onChunk,
+  );
   return extractMermaid(raw, stage);
 }
 
 function buildDraftPrompt(currentChart?: ChartGraph | null): string {
-  return currentChart ? buildPatcherPrompt(currentChart) : FLOWCHART_SYSTEM_PROMPT;
+  return currentChart
+    ? buildPatcherPrompt(currentChart)
+    : FLOWCHART_SYSTEM_PROMPT;
 }
 
 function buildValidationPrompt(): string {
@@ -210,7 +238,10 @@ Additional enhancement rules:
 - Prefer better semantics over extra complexity`;
 }
 
-function finalizeChart(mermaid: string, userRequest: string): { chart: ChartGraph; mermaid: string; issues: string[] } {
+function finalizeChart(
+  mermaid: string,
+  userRequest: string,
+): { chart: ChartGraph; mermaid: string; issues: string[] } {
   try {
     const sanitized = sanitizeMermaidSyntax(mermaid);
     const parsed = mermaidToChart(sanitized);
@@ -219,18 +250,27 @@ function finalizeChart(mermaid: string, userRequest: string): { chart: ChartGrap
     const reparsed = mermaidToChart(finalMermaid);
     return { chart: reparsed, mermaid: finalMermaid, issues };
   } catch (err) {
-    throw stageError("finalize", `Unable to parse/finalize chart for request "${userRequest}". ${err instanceof Error ? err.message : String(err)}`);
+    throw stageError(
+      "finalize",
+      `Unable to parse/finalize chart for request "${userRequest}". ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
-function logStageOutput(stage: "generation" | "validation" | "enhancer" | "finalize", mermaid: string, chart: ChartGraph) {
+function logStageOutput(
+  stage: "generation" | "validation" | "enhancer" | "finalize",
+  mermaid: string,
+  chart: ChartGraph,
+) {
   console.log(
     `[quality:${stage}] ${chart.nodes.length} nodes, ${chart.edges.length} edges\n` +
-    `${previewText(mermaid)}`
+      `${previewText(mermaid)}`,
   );
 }
 
-export async function generateQualityChart(input: QualityPipelineInput): Promise<QualityPipelineResult> {
+export async function generateQualityChart(
+  input: QualityPipelineInput,
+): Promise<QualityPipelineResult> {
   assertNotAborted(input.signal);
 
   const current = formatCurrentChart(input.currentChart);
@@ -242,7 +282,7 @@ export async function generateQualityChart(input: QualityPipelineInput): Promise
     "🛠️ Generating...",
     buildDraftPrompt(input.currentChart),
     `User request:
-${input.userRequest}${current}`
+${input.userRequest}${current}`,
   );
   const draftChart = finalizeChart(draft, input.userRequest).chart;
   logStageOutput("generation", draft, draftChart);
@@ -257,7 +297,7 @@ ${input.userRequest}${current}`
 ${input.userRequest}
 
 Draft chart:
-${draft}`
+${draft}`,
   );
   const validatedChart = finalizeChart(validated, input.userRequest).chart;
   logStageOutput("validation", validated, validatedChart);
@@ -272,7 +312,7 @@ ${draft}`
 ${input.userRequest}
 
 Validated chart:
-${validated}`
+${validated}`,
   );
   const enhancedChart = finalizeChart(enhanced, input.userRequest).chart;
   logStageOutput("enhancer", enhanced, enhancedChart);

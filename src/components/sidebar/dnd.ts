@@ -15,8 +15,8 @@ let _refreshSrcParent: (() => void) | null = null;
 let _setDragging: ((e: FsEntry | null) => void) | null = null;
 
 let _ghost: HTMLElement | null = null;
-let _dragging = false;         // true once movement threshold is crossed
-let _justDragged = false;      // suppresses the click that fires after mouseup
+let _dragging = false; // true once movement threshold is crossed
+let _justDragged = false; // suppresses the click that fires after mouseup
 
 const THRESHOLD = 6; // px before drag "starts" visually
 let _startX = 0;
@@ -60,7 +60,7 @@ export function startDrag(
   setDragging: (e: FsEntry | null) => void,
   refreshParent: () => void,
   startX: number,
-  startY: number
+  startY: number,
 ) {
   _src = entry;
   _setDragging = setDragging;
@@ -79,7 +79,10 @@ export function startDrag(
  * Call inside onClick handlers to ignore the click that follows a drag.
  */
 export function consumeJustDragged(): boolean {
-  if (_justDragged) { _justDragged = false; return true; }
+  if (_justDragged) {
+    _justDragged = false;
+    return true;
+  }
   return false;
 }
 
@@ -102,14 +105,17 @@ function onMouseMove(e: MouseEvent) {
 
   if (_ghost) {
     _ghost.style.left = `${e.clientX + 14}px`;
-    _ghost.style.top  = `${e.clientY + 10}px`;
+    _ghost.style.top = `${e.clientY + 10}px`;
   }
 
   updateDropTarget(e.clientX, e.clientY);
 }
 
 async function onMouseUp(_e: MouseEvent) {
-  if (!_src) { cleanup(); return; }
+  if (!_src) {
+    cleanup();
+    return;
+  }
 
   const src = _src;
   const target = _activeTarget;
@@ -149,8 +155,7 @@ function updateDropTarget(x: number, y: number) {
 
   if (newTarget) {
     const valid =
-      newTarget !== _src.path &&
-      !newTarget.startsWith(_src.path + "/");
+      newTarget !== _src.path && !newTarget.startsWith(_src.path + "/");
     if (valid) {
       _dropTargets.get(newTarget)?.(true);
       _activeTarget = newTarget;
@@ -168,8 +173,14 @@ function cleanup() {
   document.body.style.userSelect = "";
   document.body.style.cursor = "";
 
-  if (_ghost) { _ghost.remove(); _ghost = null; }
-  if (_activeTarget) { _dropTargets.get(_activeTarget)?.(false); _activeTarget = null; }
+  if (_ghost) {
+    _ghost.remove();
+    _ghost = null;
+  }
+  if (_activeTarget) {
+    _dropTargets.get(_activeTarget)?.(false);
+    _activeTarget = null;
+  }
 
   _setDragging?.(null);
   _refreshSrcParent = null;

@@ -17,21 +17,27 @@ export interface PartialChart {
 function inferType(shape: string, text: string): string {
   if (shape === "stadium") {
     const t = text.toLowerCase();
-    if (t === "end" || t === "stop" || t === "finish" || t.startsWith("end ") || t.endsWith(" end")) {
+    if (
+      t === "end" ||
+      t === "stop" ||
+      t === "finish" ||
+      t.startsWith("end ") ||
+      t.endsWith(" end")
+    ) {
       return "end";
     }
     return "start";
   }
   const MAP: Record<string, string> = {
-    "rounded-rect":  "action",
-    "rect":          "action",
-    "diamond":       "decision",
-    "parallelogram": "io",
-    "hexagon":       "loop",
-    "cylinder":      "datastore",
+    "rounded-rect": "action",
+    rect: "action",
+    diamond: "decision",
+    parallelogram: "io",
+    hexagon: "loop",
+    cylinder: "datastore",
     "double-circle": "event",
-    "subroutine":    "subprocess",
-    "flag":          "milestone",
+    subroutine: "subprocess",
+    flag: "milestone",
   };
   return MAP[shape] ?? "action";
 }
@@ -45,7 +51,12 @@ export function parseStreamingChart(accumulated: string): PartialChart | null {
   const edgeSet = new Set<string>();
 
   for (const line of accumulated.split("\n")) {
-    const { nodes, edges: lineEdges, title, direction } = parseMermaidLine(line);
+    const {
+      nodes,
+      edges: lineEdges,
+      title,
+      direction,
+    } = parseMermaidLine(line);
 
     if (title) meta.title = title;
     if (direction) meta.direction = direction;

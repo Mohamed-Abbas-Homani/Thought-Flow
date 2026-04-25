@@ -24,11 +24,11 @@ export interface Layout {
 
 // Per-shape dimensions (total bbox, centred at x/y)
 const SHAPE_SIZE: Record<string, { w: number; h: number }> = {
-  diamond:         { w: 160, h: 88 },
+  diamond: { w: 160, h: 88 },
   "double-circle": { w: 100, h: 100 },
-  hexagon:         { w: 174, h: 62 },
-  cylinder:        { w: 148, h: 68 },
-  default:         { w: 180, h: 52 },
+  hexagon: { w: 174, h: 62 },
+  cylinder: { w: 148, h: 68 },
+  default: { w: 180, h: 52 },
 };
 
 function nodeSize(shape: string): { w: number; h: number } {
@@ -102,22 +102,24 @@ export function computeLayout(chart: ChartGraph): Layout {
   dagre.layout(g);
 
   const placedNodeMap = new Map<string, LayoutNode>();
-  let minX = Infinity, minY = Infinity;
-  let maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity;
 
   for (const id of g.nodes()) {
     const out = g.node(id);
     if (!out) continue;
-    
+
     // The properties we spread injected during setNode
     const n = out as any;
-    
+
     const nodeOut: LayoutNode = {
       ...n,
-      x:      out.x,
-      y:      out.y,
-      w:      out.width,
-      h:      out.height,
+      x: out.x,
+      y: out.y,
+      w: out.width,
+      h: out.height,
     };
     placedNodeMap.set(id, nodeOut);
 
@@ -132,28 +134,28 @@ export function computeLayout(chart: ChartGraph): Layout {
   for (const e of g.edges()) {
     const out = g.edge(e);
     if (!out) continue;
-    
+
     const srcNode = placedNodeMap.get(e.v);
     const dstNode = placedNodeMap.get(e.w);
-    
+
     if (!srcNode || !dstNode) continue;
-    const originEdges = edges.filter(ce => ce.from === e.v && ce.to === e.w);
-    
+    const originEdges = edges.filter((ce) => ce.from === e.v && ce.to === e.w);
+
     // Handle edge points (Dagre routes them beautifully avoiding nodes)
     let points = out.points ? [...out.points] : [];
-    
+
     if (points.length >= 2) {
       // Pull endpoints to shape intersections
       const startInner = points[1] || dstNode;
-      const endInner   = points[points.length - 2] || srcNode;
+      const endInner = points[points.length - 2] || srcNode;
       points[0] = intersectShape(srcNode, startInner);
       points[points.length - 1] = intersectShape(dstNode, endInner);
     } else {
       const start = intersectShape(srcNode, dstNode);
-      const end   = intersectShape(dstNode, srcNode);
+      const end = intersectShape(dstNode, srcNode);
       points = [start, end];
     }
-    
+
     // Add to bound dimensions
     for (const p of points) {
       minX = Math.min(minX, p.x);
@@ -164,13 +166,14 @@ export function computeLayout(chart: ChartGraph): Layout {
 
     // Default dagre marks cycles sometimes, but we will treat all edges structurally identically
     // except we can determine 'isBack' if it goes against the rank dir visually
-    const isBack = dir === "horizontal" ? dstNode.x < srcNode.x : dstNode.y < srcNode.y;
+    const isBack =
+      dir === "horizontal" ? dstNode.x < srcNode.x : dstNode.y < srcNode.y;
 
     for (const originalEdge of originEdges) {
       placedEdges.push({
         ...originalEdge,
         points: points,
-        isBack
+        isBack,
       });
     }
   }
@@ -180,7 +183,7 @@ export function computeLayout(chart: ChartGraph): Layout {
   return {
     nodes: Array.from(placedNodeMap.values()),
     edges: placedEdges,
-    width:  Math.max(graphSize.width ?? (maxX - minX + 80), 0),
-    height: Math.max(graphSize.height ?? (maxY - minY + 80), 0),
+    width: Math.max(graphSize.width ?? maxX - minX + 80, 0),
+    height: Math.max(graphSize.height ?? maxY - minY + 80, 0),
   };
 }

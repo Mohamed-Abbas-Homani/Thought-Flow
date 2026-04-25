@@ -2,61 +2,61 @@
 
 /* Semantic tokens — set by applyTheme() at runtime */
 :root {
-  --background:            #1e2130;
-  --foreground:            #ced2df;
-  --primary:               #272c3f;
-  --primary-foreground:    #ced2df;
-  --secondary:             #343b58;
-  --secondary-foreground:  #ced2df;
-  --muted:                 #272c3f;
-  --muted-foreground:      #717a9c;
-  --border:                #2e3450;
-  --ring:                  #5b6a9e;
-  --error:                 #e05c6a;
-  --error-foreground:      #f0f1f4;
-  --success:               #4a9e78;
-  --success-foreground:    #0f1117;
-  --warning:               #d4924a;
-  --warning-foreground:    #0f1117;
-  --info:                  #5a8ec4;
-  --info-foreground:       #0f1117;
+  --background: #1e2130;
+  --foreground: #ced2df;
+  --primary: #272c3f;
+  --primary-foreground: #ced2df;
+  --secondary: #343b58;
+  --secondary-foreground: #ced2df;
+  --muted: #272c3f;
+  --muted-foreground: #717a9c;
+  --border: #2e3450;
+  --ring: #5b6a9e;
+  --error: #e05c6a;
+  --error-foreground: #f0f1f4;
+  --success: #4a9e78;
+  --success-foreground: #0f1117;
+  --warning: #d4924a;
+  --warning-foreground: #0f1117;
+  --info: #5a8ec4;
+  --info-foreground: #0f1117;
 
   /* Chart Specific Colors defaults (Raven dark) */
-  --chart-bg:              #161824;
-  --chart-node-bg:         #343b58;
-  --chart-node-border:     #5b6a9e;
-  --chart-edge:            #717a9c;
-  --chart-text:            #ced2df;
+  --chart-bg: #161824;
+  --chart-node-bg: #343b58;
+  --chart-node-border: #5b6a9e;
+  --chart-edge: #717a9c;
+  --chart-text: #ced2df;
 
   /* Non-color design tokens */
   --radius: 0.375rem;
 }
 
 @theme inline {
-  --color-background:           var(--background);
-  --color-foreground:           var(--foreground);
-  --color-primary:              var(--primary);
-  --color-primary-foreground:   var(--primary-foreground);
-  --color-secondary:            var(--secondary);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted:                var(--muted);
-  --color-muted-foreground:     var(--muted-foreground);
-  --color-border:               var(--border);
-  --color-ring:                 var(--ring);
-  --color-error:                var(--error);
-  --color-error-foreground:     var(--error-foreground);
-  --color-success:              var(--success);
-  --color-success-foreground:   var(--success-foreground);
-  --color-warning:              var(--warning);
-  --color-warning-foreground:   var(--warning-foreground);
-  --color-info:                 var(--info);
-  --color-info-foreground:      var(--info-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
 
-  --color-chart-bg:             var(--chart-bg);
-  --color-chart-node-bg:        var(--chart-node-bg);
-  --color-chart-node-border:    var(--chart-node-border);
-  --color-chart-edge:           var(--chart-edge);
-  --color-chart-text:           var(--chart-text);
+  --color-chart-bg: var(--chart-bg);
+  --color-chart-node-bg: var(--chart-node-bg);
+  --color-chart-node-border: var(--chart-node-border);
+  --color-chart-edge: var(--chart-edge);
+  --color-chart-text: var(--chart-text);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);

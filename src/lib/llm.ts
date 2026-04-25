@@ -69,16 +69,18 @@ Rules:
 export const ASSIST_SYSTEM_PROMPT = `You are an AI assistant for a flowchart tool. The user is typing a prompt.
 Your task is to provide:
 1. The current Mermaid flowchart code based on what they have written so far.
-2. A single concise sentence suggestion to complete their current thought.
+2. A short natural-language text completion that continues exactly what the user is typing.
 3. The ADDITIONAL Mermaid code (nodes and edges) for that suggestion.
 
 FLOWCHART RULES:
+- The mermaid field must begin with graph TD, then a title line: title: <Short descriptive title>.
+- Always generate a concise chart title that names the process being described.
 - First node must be n1(["Start"])
 - Node IDs must be sequential: n1, n2, n3, ...
 - Wrap node labels in double quotes: n2["Label"]
 - Every node must be defined with its label in shape brackets on its FIRST appearance.
 - Decision nodes {"text"} MUST have ≥2 outgoing labeled edges.
-- KeepLabels concise.
+- Keep labels concise.
 
 SHAPE GUIDE:
 ([ "text" ]) = start/end | [ "text" ] = action | { "text" } = decision
@@ -86,14 +88,17 @@ SHAPE GUIDE:
 
 Respond ONLY in JSON format:
 {
-  "mermaid": "graph TD\\nn1([\"Start\"]) --> n2[\"Step\"]",
-  "suggestionText": "completion of sentence",
+  "mermaid": "graph TD\\ntitle: Customer Request Process\\nn1([\"Start\"]) --> n2[\"Step\"]",
+  "suggestionText": " then validates the request and sends the result to the customer.",
   "suggestionMermaid": "n2 --> n3[\"Next Step\"]"
 }
 
 IMPORTANT:
 - Use \\n for newlines in mermaid.
 - Return ONLY JSON.
+- suggestionText is text for the prompt textarea, not a node name, ID, Mermaid fragment, label list, or title.
+- suggestionText must be only the suffix to append after the user's current text. Include a leading space only when natural.
+- suggestionText should describe the next process action in plain language, usually 5-18 words.
 - suggestionMermaid nodes should link to existing nodes.`;
 
 export const REFINE_SYSTEM_PROMPT = `You are a flowchart validator and enhancer.
@@ -121,24 +126,39 @@ export async function streamLLM(
   messages: LLMMessage[],
   onChunk: (token: string) => void,
   signal?: AbortSignal,
-  currentChart?: ChartGraph | null
+  currentChart?: ChartGraph | null,
 ): Promise<string> {
-  const { llmProvider, llmUrl, llmModel, llmApiKey } = useSettingsStore.getState();
-  const systemPrompt = currentChart ? buildPatcherPrompt(currentChart) : FLOWCHART_SYSTEM_PROMPT;
-  
-  const allMessages = [
-    { role: "system", content: systemPrompt },
-    ...messages,
-  ];
+  const { llmProvider, llmUrl, llmModel, llmApiKey, anthropicMaxTokens } =
+    useSettingsStore.getState();
+  const systemPrompt = currentChart
+    ? buildPatcherPrompt(currentChart)
+    : FLOWCHART_SYSTEM_PROMPT;
+
+  const allMessages = [{ role: "system", content: systemPrompt }, ...messages];
 
   if (llmProvider === "ollama") {
     return streamOllama(llmUrl, llmModel, allMessages, onChunk, signal);
   } else if (llmProvider === "openai") {
-    return streamOpenAI(llmUrl, llmModel, llmApiKey, allMessages, onChunk, signal);
+    return streamOpenAI(
+      llmUrl,
+      llmModel,
+      llmApiKey,
+      allMessages,
+      onChunk,
+      signal,
+    );
   } else if (llmProvider === "anthropic") {
-    return streamAnthropic(llmUrl, llmModel, llmApiKey, allMessages, onChunk, signal);
+    return streamAnthropic(
+      llmUrl,
+      llmModel,
+      llmApiKey,
+      anthropicMaxTokens,
+      allMessages,
+      onChunk,
+      signal,
+    );
   }
-  
+
   throw new Error(`Unsupported provider: ${llmProvider}`);
 }
 
@@ -146,23 +166,39 @@ export async function completeLLM(
   systemPrompt: string,
   messages: LLMMessage[],
   signal?: AbortSignal,
-  onChunk?: (token: string) => void
+  onChunk?: (token: string) => void,
 ): Promise<string> {
-  const allMessages = [
-    { role: "system", content: systemPrompt },
-    ...messages,
-  ];
+  const allMessages = [{ role: "system", content: systemPrompt }, ...messages];
 
   const chunks: string[] = [];
-  const collect = (token: string) => { chunks.push(token); onChunk?.(token); };
-  const { llmProvider, llmUrl, llmModel, llmApiKey } = useSettingsStore.getState();
+  const collect = (token: string) => {
+    chunks.push(token);
+    onChunk?.(token);
+  };
+  const { llmProvider, llmUrl, llmModel, llmApiKey, anthropicMaxTokens } =
+    useSettingsStore.getState();
 
   if (llmProvider === "ollama") {
     await streamOllama(llmUrl, llmModel, allMessages, collect, signal);
   } else if (llmProvider === "openai") {
-    await streamOpenAI(llmUrl, llmModel, llmApiKey, allMessages, collect, signal);
+    await streamOpenAI(
+      llmUrl,
+      llmModel,
+      llmApiKey,
+      allMessages,
+      collect,
+      signal,
+    );
   } else if (llmProvider === "anthropic") {
-    await streamAnthropic(llmUrl, llmModel, llmApiKey, allMessages, collect, signal);
+    await streamAnthropic(
+      llmUrl,
+      llmModel,
+      llmApiKey,
+      anthropicMaxTokens,
+      allMessages,
+      collect,
+      signal,
+    );
   } else {
     throw new Error(`Unsupported provider: ${llmProvider}`);
   }
@@ -173,34 +209,64 @@ export async function completeLLM(
 export async function suggestLLM(
   prompt: string,
   history: LLMMessage[],
-  signal?: AbortSignal
-): Promise<{ mermaid: string; suggestionText: string; suggestionMermaid: string } | null> {
+  signal?: AbortSignal,
+): Promise<{
+  mermaid: string;
+  suggestionText: string;
+  suggestionMermaid: string;
+} | null> {
   const messages: LLMMessage[] = [
     ...history,
-    { role: "user", content: prompt }
+    { role: "user", content: prompt },
   ];
 
   try {
     const raw = await completeLLM(ASSIST_SYSTEM_PROMPT, messages, signal);
     // Handle cases where LLM includes markdown fences despite the prompt
-    const clean = raw.replace(/```(?:json)?/g, "").replace(/```/g, "").trim();
-    const parsed = JSON.parse(clean);
-    
+    const clean = raw
+      .replace(/```(?:json)?/g, "")
+      .replace(/```/g, "")
+      .trim();
+    const jsonText = clean.match(/\{[\s\S]*\}/)?.[0] ?? clean;
+    const parsed = JSON.parse(jsonText);
+
     return {
-      mermaid: parsed.mermaid || "",
-      suggestionText: parsed.suggestionText || "",
-      suggestionMermaid: parsed.suggestionMermaid || ""
+      mermaid: typeof parsed.mermaid === "string" ? parsed.mermaid : "",
+      suggestionText: cleanAssistSuggestionText(
+        typeof parsed.suggestionText === "string" ? parsed.suggestionText : "",
+      ),
+      suggestionMermaid:
+        typeof parsed.suggestionMermaid === "string"
+          ? parsed.suggestionMermaid
+          : "",
     };
   } catch (err) {
-    console.warn("[assist] failed to parse suggestion:", err);
+    if (!(err instanceof Error && err.name === "AbortError")) {
+      console.warn("[assist] failed to parse suggestion:", err);
+    }
     return null;
   }
 }
 
-export async function refineLLM(mermaid: string, signal?: AbortSignal): Promise<string> {
+function cleanAssistSuggestionText(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\bgraph\s+(?:TD|LR|BT|RL)\b[\s\S]*$/i, "")
+    .replace(/\bn\d+\b/g, "")
+    .replace(/\s+/g, " ")
+    .trimEnd();
+}
+
+export async function refineLLM(
+  mermaid: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const messages: LLMMessage[] = [{ role: "user", content: mermaid }];
   const raw = await completeLLM(REFINE_SYSTEM_PROMPT, messages, signal);
-  return raw.replace(/```(?:mermaid)?/g, "").replace(/```/g, "").trim();
+  return raw
+    .replace(/```(?:mermaid)?/g, "")
+    .replace(/```/g, "")
+    .trim();
 }
 
 async function streamOllama(
@@ -208,13 +274,18 @@ async function streamOllama(
   model: string,
   messages: any[],
   onChunk: (token: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<string> {
   const baseUrl = url.replace(/\/$/, "");
   const response = await fetch(`${baseUrl}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, stream: true, options: { temperature: 0 } }),
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: true,
+      options: { temperature: 0 },
+    }),
     signal,
   });
 
@@ -238,7 +309,10 @@ async function streamOllama(
       try {
         const parsed = JSON.parse(line);
         const token = parsed.message?.content ?? "";
-        if (token) { accumulated += token; onChunk(token); }
+        if (token) {
+          accumulated += token;
+          onChunk(token);
+        }
         if (parsed.done) return accumulated.trim();
       } catch {}
     }
@@ -252,14 +326,14 @@ async function streamOpenAI(
   apiKey: string,
   messages: any[],
   onChunk: (token: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<string> {
   const baseUrl = (url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await tauriFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({ model, messages, stream: true, temperature: 0 }),
     signal,
@@ -287,7 +361,10 @@ async function streamOpenAI(
         try {
           const parsed = JSON.parse(trimmed.slice(6));
           const token = parsed.choices?.[0]?.delta?.content ?? "";
-          if (token) { accumulated += token; onChunk(token); }
+          if (token) {
+            accumulated += token;
+            onChunk(token);
+          }
         } catch {}
       }
     }
@@ -299,23 +376,28 @@ async function streamAnthropic(
   url: string,
   model: string,
   apiKey: string,
+  maxTokens: number | undefined,
   messages: any[],
   onChunk: (token: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<string> {
   const baseUrl = (url || "https://api.anthropic.com/v1").replace(/\/$/, "");
   // Anthropic messages API requires system as a separate field
-  const system = messages.find(m => m.role === "system")?.content;
-  const userMessages = messages.filter(m => m.role !== "system");
+  const system = messages.find((m) => m.role === "system")?.content;
+  const userMessages = messages.filter((m) => m.role !== "system");
 
   const cleanApiKey = apiKey.trim();
+  const safeMaxTokens =
+    Number.isFinite(maxTokens) && (maxTokens ?? 0) > 0
+      ? Math.floor(maxTokens ?? 1024)
+      : 1024;
   const body = {
     model,
     system,
     messages: userMessages,
     stream: true,
-    max_tokens: 1024,
-    temperature: 0
+    max_tokens: safeMaxTokens,
+    temperature: 0,
   };
 
   const requestHeaders = {
@@ -325,7 +407,12 @@ async function streamAnthropic(
     "anthropic-dangerous-direct-browser-access": "true",
   };
   console.log("[anthropic] url:", `${baseUrl}/messages`);
-  console.log("[anthropic] headers:", { ...requestHeaders, "x-api-key": cleanApiKey ? `${cleanApiKey.slice(0, 8)}...${cleanApiKey.slice(-4)} (len=${cleanApiKey.length})` : "(empty)" });
+  console.log("[anthropic] headers:", {
+    ...requestHeaders,
+    "x-api-key": cleanApiKey
+      ? `${cleanApiKey.slice(0, 8)}...${cleanApiKey.slice(-4)} (len=${cleanApiKey.length})`
+      : "(empty)",
+  });
   console.log("[anthropic] body:", JSON.stringify(body, null, 2));
 
   const response = await tauriFetch(`${baseUrl}/messages`, {
@@ -335,7 +422,11 @@ async function streamAnthropic(
     signal,
   });
 
-  console.log("[anthropic] response status:", response.status, response.statusText);
+  console.log(
+    "[anthropic] response status:",
+    response.status,
+    response.statusText,
+  );
   if (!response.ok) {
     const errBody = await response.text();
     console.error("[anthropic] error body:", errBody);

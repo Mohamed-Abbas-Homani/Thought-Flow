@@ -8,7 +8,10 @@ export function TabBar() {
 
   // Scroll active tab into view when it changes
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ inline: "nearest", behavior: "smooth" });
+    activeRef.current?.scrollIntoView({
+      inline: "nearest",
+      behavior: "smooth",
+    });
   }, [activeTabPath]);
 
   if (tabs.length === 0) return null;
@@ -40,13 +43,17 @@ export function TabBar() {
             </button>
 
             <button
-              onClick={(e) => { e.stopPropagation(); closeTab(tab.path); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                closeTab(tab.path);
+              }}
               className="pr-2 h-full flex items-center text-foreground/30 hover:text-foreground cursor-default transition-colors"
             >
-              {tab.isDirty
-                ? <Circle size={8} className="fill-current" />
-                : <X size={12} strokeWidth={1.5} />
-              }
+              {tab.isDirty ? (
+                <Circle size={8} className="fill-current" />
+              ) : (
+                <X size={12} strokeWidth={1.5} />
+              )}
             </button>
           </div>
         );

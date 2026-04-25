@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Paintbrush, Send, Square, Trash2 } from "lucide-react";
 import { useTabStore, type ChatMessage } from "../store/tabStore";
 import { streamLLM, suggestLLM, refineLLM } from "../lib/llm";
-import { mermaidToChart } from "../lib/chart/mermaid";
+import { chartToMermaid, mermaidToChart } from "../lib/chart/mermaid";
 import { validateAndFix } from "../lib/chart/validate";
 import { parseStreamingChart, partialToGraph } from "../lib/chart/streamParse";
 import { generateQualityChart } from "../lib/chart/qualityPipeline";
@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { useStreamingStore } from "../store/streamingStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useLayoutStore } from "../store/layoutStore";
-
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
@@ -20,27 +19,32 @@ export function ChatPanel() {
   const { tabs, activeTabPath, addMessage, setChart, saveTab } = useTabStore();
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
 
-  const [input, setInput]           = useState("");
+  const [input, setInput] = useState("");
   const { chatWidth: width, setChatWidth: setWidth } = useLayoutStore();
   const { setIsStreaming } = useStreamingStore();
-  const [streaming, setStreaming]   = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
   const [suggestion, setSuggestion] = useState<string>("");
-  const [, setSuggestionMermaid] = useState<string>("");
-  
+  const [suggestionMermaid, setSuggestionMermaid] = useState<string>("");
+  const [suggestionBaseMermaid, setSuggestionBaseMermaid] =
+    useState<string>("");
+
   const { llmModel, openSettings } = useSettingsStore();
 
-  const bottomRef      = useRef<HTMLDivElement>(null);
-  const textareaRef    = useRef<HTMLTextAreaElement>(null);
-  const abortRef       = useRef<AbortController | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionLayerRef = useRef<HTMLDivElement>(null);
+  const suggestionMeasureRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const suggestAbortRef = useRef<AbortController | null>(null);
   const refineAbortRef = useRef<AbortController | null>(null);
   const suggestTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const refineTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const suggestRequestIdRef = useRef(0);
 
   // Undo/redo history
-  const historyRef      = useRef<string[]>([""]);
+  const historyRef = useRef<string[]>([""]);
   const historyIndexRef = useRef(0);
 
   // Refs for stable access inside stream callbacks
@@ -51,12 +55,35 @@ export function ChatPanel() {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    const measured = suggestionMeasureRef.current?.scrollHeight ?? 0;
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, measured), 160)}px`;
+    syncSuggestionScroll();
+  }
+
+  function syncSuggestionScroll() {
+    const textarea = textareaRef.current;
+    const layer = suggestionLayerRef.current;
+    if (!textarea || !layer) return;
+    layer.scrollTop = textarea.scrollTop;
+    layer.scrollLeft = textarea.scrollLeft;
+  }
+
+  useEffect(() => {
+    resizeTextarea();
+    syncSuggestionScroll();
+  }, [input, suggestion, generationMode]);
+
+  function handleSuggestionWheel(e: React.WheelEvent<HTMLTextAreaElement>) {
+    const layer = suggestionLayerRef.current;
+    if (!suggestion || !layer || layer.scrollHeight <= layer.clientHeight)
+      return;
+    e.preventDefault();
+    layer.scrollTop += e.deltaY;
   }
 
   function handleResizeMouseDown(e: React.MouseEvent) {
     e.preventDefault();
-    const startX     = e.clientX;
+    const startX = e.clientX;
     const startWidth = width;
 
     function onMouseMove(ev: MouseEvent) {
@@ -101,6 +128,72 @@ export function ChatPanel() {
     abortRef.current?.abort();
   }
 
+  function resetAssistSuggestion() {
+    setSuggestion("");
+    setSuggestionMermaid("");
+    setSuggestionBaseMermaid("");
+  }
+
+  function suggestionSuffix(baseText: string, nextText: string) {
+    let suffix = nextText.replace(/\s+/g, " ").trim();
+    const base = baseText.replace(/\s+/g, " ").trim();
+    if (base && suffix.toLowerCase().startsWith(base.toLowerCase())) {
+      suffix = suffix.slice(base.length).trim();
+    }
+    if (!suffix) return "";
+    if (!baseText || /\s$/.test(baseText) || /^[,.;:!?)]/.test(suffix))
+      return suffix;
+    return ` ${suffix}`;
+  }
+
+  function definedNodeIds(mermaid: string) {
+    const ids: string[] = [];
+    const nodeDefPattern =
+      /(?:^|\s)([A-Za-z_][\w]*)\s*(?=\(\[|\[\(|\(\(|\[\[|\{\{|\{|>|\[\/|\(|\[)/gm;
+    for (const match of mermaid.matchAll(nodeDefPattern)) ids.push(match[1]);
+    return Array.from(new Set(ids));
+  }
+
+  function assistMermaid(
+    baseMermaid: string,
+    additionalMermaid: string,
+    ghost: boolean,
+  ) {
+    const base = baseMermaid.trim();
+    const additional = additionalMermaid.trim();
+    if (!base) return "";
+    if (!additional) return base;
+
+    const existingIds = new Set(definedNodeIds(base));
+    const newIds = definedNodeIds(additional).filter(
+      (id) => !existingIds.has(id),
+    );
+    const lines = [base, additional];
+
+    if (ghost && newIds.length > 0) {
+      lines.push("classDef Ghost opacity:0.4,stroke-dasharray: 5 5;");
+      for (const id of newIds) lines.push(`class ${id} Ghost`);
+    }
+
+    return lines.join("\n");
+  }
+
+  function applyAssistChart(
+    baseMermaid: string,
+    additionalMermaid: string,
+    ghost: boolean,
+  ) {
+    if (!activeTabPathRef.current || !baseMermaid.trim()) return;
+    try {
+      const chart = validateAndFix(
+        mermaidToChart(assistMermaid(baseMermaid, additionalMermaid, ghost)),
+      ).fixed;
+      setChart(activeTabPathRef.current, chart);
+    } catch (e) {
+      console.warn("[assist] failed to apply suggestion to chart", e);
+    }
+  }
+
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     const text = input.trim();
@@ -111,20 +204,25 @@ export function ChatPanel() {
     historyIndexRef.current = 0;
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    const userMsg: ChatMessage = { role: "user", content: text, timestamp: Date.now() };
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: text,
+      timestamp: Date.now(),
+    };
     addMessage(activeTabPath, userMsg);
 
-    const history = [
-      ...(activeTab?.messages ?? []),
-      userMsg,
-    ].map(({ role, content }) => ({ role, content }));
+    const history = [...(activeTab?.messages ?? []), userMsg].map(
+      ({ role, content }) => ({ role, content }),
+    );
 
     setStreaming(true);
     setIsStreaming(true);
     setStreamingText("");
     abortRef.current = new AbortController();
 
-    console.log(`[pipeline] starting generation — mode=${generationMode}, live-preview=true, tab=${activeTabPath}`);
+    console.log(
+      `[pipeline] starting generation — mode=${generationMode}, live-preview=true, tab=${activeTabPath}`,
+    );
 
     if (generationMode === "quality") {
       let assistantContent = "";
@@ -151,7 +249,10 @@ export function ChatPanel() {
             const partial = parseStreamingChart(stageAccumulated);
             if (partial && activeTabPathRef.current) {
               const { nodes, edges } = partial;
-              if (nodes.length > stageLastNodeCount || edges.length > stageLastEdgeCount) {
+              if (
+                nodes.length > stageLastNodeCount ||
+                edges.length > stageLastEdgeCount
+              ) {
                 stageLastNodeCount = nodes.length;
                 stageLastEdgeCount = edges.length;
                 setChart(activeTabPathRef.current, partialToGraph(partial));
@@ -183,14 +284,18 @@ export function ChatPanel() {
       setStreamingText("");
       abortRef.current = null;
 
-      const assistantMsg: ChatMessage = { role: "assistant", content: assistantContent, timestamp: Date.now() };
+      const assistantMsg: ChatMessage = {
+        role: "assistant",
+        content: assistantContent,
+        timestamp: Date.now(),
+      };
       addMessage(activeTabPath, assistantMsg);
       await saveTab(activeTabPath);
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
       return;
     }
 
-    const isPatchMode = !!(activeTab?.chart);
+    const isPatchMode = !!activeTab?.chart;
     let accumulated = "";
     let lastNodeCount = 0;
     let lastEdgeCount = 0;
@@ -208,8 +313,13 @@ export function ChatPanel() {
             const partial = parseStreamingChart(accumulated);
             if (partial) {
               const { nodes, edges } = partial;
-              if (nodes.length > lastNodeCount || edges.length > lastEdgeCount) {
-                console.log(`[live] +${nodes.length - lastNodeCount} node(s), +${edges.length - lastEdgeCount} edge(s) → ${nodes.length} nodes, ${edges.length} edges @ ${accumulated.length} chars`);
+              if (
+                nodes.length > lastNodeCount ||
+                edges.length > lastEdgeCount
+              ) {
+                console.log(
+                  `[live] +${nodes.length - lastNodeCount} node(s), +${edges.length - lastEdgeCount} edge(s) → ${nodes.length} nodes, ${edges.length} edges @ ${accumulated.length} chars`,
+                );
                 lastNodeCount = nodes.length;
                 lastEdgeCount = edges.length;
                 setChart(activeTabPathRef.current, partialToGraph(partial));
@@ -218,7 +328,7 @@ export function ChatPanel() {
           }
         },
         abortRef.current.signal,
-        activeTab?.chart ?? null
+        activeTab?.chart ?? null,
       );
     } catch (err: unknown) {
       const isAbort = err instanceof Error && err.name === "AbortError";
@@ -246,83 +356,98 @@ export function ChatPanel() {
     const mermaidText = fenceMatch ? fenceMatch[1] : full;
 
     if (mermaidText.trim().startsWith("graph ")) {
-      console.log(`[pipeline] final parse — ${mermaidText.length} chars${fenceMatch ? " (extracted from code fence)" : ""}`);
+      console.log(
+        `[pipeline] final parse — ${mermaidText.length} chars${fenceMatch ? " (extracted from code fence)" : ""}`,
+      );
       try {
         const { fixed, issues } = validateAndFix(mermaidToChart(mermaidText));
-        console.log(`[pipeline] validate+fix: ${issues.length === 0 ? "clean" : issues.join("; ")} → ${fixed.nodes.length} nodes, ${fixed.edges.length} edges`);
+        console.log(
+          `[pipeline] validate+fix: ${issues.length === 0 ? "clean" : issues.join("; ")} → ${fixed.nodes.length} nodes, ${fixed.edges.length} edges`,
+        );
 
         // Enhancement 3: patcher mode — log when editing vs creating
-        const hadChart = !!(tabs.find(t => t.path === activeTabPath)?.chart);
-        console.log(`[pipeline] chart mode: ${hadChart ? "patch (editing existing)" : "generate (new chart)"}`);
+        const hadChart = !!tabs.find((t) => t.path === activeTabPath)?.chart;
+        console.log(
+          `[pipeline] chart mode: ${hadChart ? "patch (editing existing)" : "generate (new chart)"}`,
+        );
 
         setChart(activeTabPath, fixed);
       } catch (err) {
         console.warn("[pipeline] final parse failed:", err);
       }
     } else {
-      console.warn(`[pipeline] response does not look like Mermaid — first 80 chars: ${full.slice(0, 80).replace(/\n/g, "\\n")}`);
+      console.warn(
+        `[pipeline] response does not look like Mermaid — first 80 chars: ${full.slice(0, 80).replace(/\n/g, "\\n")}`,
+      );
     }
 
-    const assistantMsg: ChatMessage = { role: "assistant", content: full, timestamp: Date.now() };
+    const assistantMsg: ChatMessage = {
+      role: "assistant",
+      content: full,
+      timestamp: Date.now(),
+    };
     addMessage(activeTabPath, assistantMsg);
     await saveTab(activeTabPath);
-    setSuggestion("");
-    setSuggestionMermaid("");
+    resetAssistSuggestion();
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }
 
   async function fetchSuggestion(text: string) {
     if (!activeTabPath) return;
-    
+
     suggestAbortRef.current?.abort();
     suggestAbortRef.current = new AbortController();
-    
-    const history = (activeTab?.messages ?? []).map(({ role, content }) => ({ role, content }));
-    const result = await suggestLLM(text, history, suggestAbortRef.current.signal);
-    
-    if (result && activeTabPathRef.current) {
-      setSuggestion(result.suggestionText);
+    const requestId = ++suggestRequestIdRef.current;
+
+    const history = (activeTab?.messages ?? []).map(({ role, content }) => ({
+      role,
+      content,
+    }));
+    const result = await suggestLLM(
+      text,
+      history,
+      suggestAbortRef.current.signal,
+    );
+
+    if (
+      requestId !== suggestRequestIdRef.current ||
+      !result ||
+      !activeTabPathRef.current
+    )
+      return;
+
+    const nextSuggestion = suggestionSuffix(text, result.suggestionText);
+    if (nextSuggestion) {
+      if (refineTimeoutRef.current) clearTimeout(refineTimeoutRef.current);
+      setSuggestion(nextSuggestion);
       setSuggestionMermaid(result.suggestionMermaid);
-      
-      // Inject ghost styling and additional nodes into chart
+      setSuggestionBaseMermaid(result.mermaid);
+
       if (result.mermaid) {
-        let mermaidCode = result.mermaid.trim();
-        if (result.suggestionMermaid) {
-          // Identify nodes in suggestionMermaid to apply Ghost class
-          const ghostNodes = Array.from(result.suggestionMermaid.matchAll(/n\d+/g)).map(m => m[0]);
-          const uniqueGhostNodes = Array.from(new Set(ghostNodes));
-          
-          mermaidCode += `\nclassDef Ghost opacity:0.4,stroke-dasharray: 5 5;\n`;
-          mermaidCode += result.suggestionMermaid + "\n";
-          uniqueGhostNodes.forEach(id => {
-            mermaidCode += `class ${id} Ghost\n`;
-          });
-        }
-        
-        try {
-          const chart = validateAndFix(mermaidToChart(mermaidCode)).fixed;
-          setChart(activeTabPathRef.current, chart);
-        } catch (e) {
-          console.warn("[assist] failed to apply suggestion to chart", e);
-        }
+        applyAssistChart(result.mermaid, result.suggestionMermaid, true);
       }
+    } else {
+      resetAssistSuggestion();
     }
   }
 
   async function handleRefinement() {
     if (!activeTabPath || !activeTab?.chart) return;
-    
-    // Convert current chart to mermaid for refinement
-    const { chartToMermaid } = await import("../lib/chart/mermaid");
+
     const currentMermaid = chartToMermaid(activeTab.chart);
-    
+
     refineAbortRef.current?.abort();
     refineAbortRef.current = new AbortController();
-    
+
     try {
-      const refinedMermaid = await refineLLM(currentMermaid, refineAbortRef.current.signal);
+      const refinedMermaid = await refineLLM(
+        currentMermaid,
+        refineAbortRef.current.signal,
+      );
       if (refinedMermaid && activeTabPathRef.current) {
-        const refinedChart = validateAndFix(mermaidToChart(refinedMermaid)).fixed;
+        const refinedChart = validateAndFix(
+          mermaidToChart(refinedMermaid),
+        ).fixed;
         setChart(activeTabPathRef.current, refinedChart);
         console.log("[assist] refinement applied");
       }
@@ -336,16 +461,20 @@ export function ChatPanel() {
       e.preventDefault();
       const combined = input + suggestion;
       setInput(combined);
-      setSuggestion("");
-      setSuggestionMermaid("");
+      applyAssistChart(suggestionBaseMermaid, suggestionMermaid, false);
+      resetAssistSuggestion();
       // Briefly restart debounce for the next continuation
       if (suggestTimeoutRef.current) clearTimeout(suggestTimeoutRef.current);
-      suggestTimeoutRef.current = setTimeout(() => fetchSuggestion(combined), 500);
+      suggestTimeoutRef.current = setTimeout(
+        () => fetchSuggestion(combined),
+        500,
+      );
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === "z") {
       e.preventDefault();
-      if (e.shiftKey) redo(); else undo();
+      if (e.shiftKey) redo();
+      else undo();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === "y") {
@@ -371,11 +500,11 @@ export function ChatPanel() {
     historyIndexRef.current = prev.length - 1;
 
     // Assist mode logic
-    setSuggestion("");
-    setSuggestionMermaid("");
+    resetAssistSuggestion();
+    suggestRequestIdRef.current += 1;
     if (suggestTimeoutRef.current) clearTimeout(suggestTimeoutRef.current);
     if (refineTimeoutRef.current) clearTimeout(refineTimeoutRef.current);
-    
+
     if (generationMode === "assist" && val.trim().length > 3) {
       suggestTimeoutRef.current = setTimeout(() => {
         fetchSuggestion(val);
@@ -391,7 +520,9 @@ export function ChatPanel() {
     if (!activeTabPath) return;
     useTabStore.setState((s) => ({
       tabs: s.tabs.map((t) =>
-        t.path === activeTabPath ? { ...t, messages: [], chart: null, isDirty: true } : t
+        t.path === activeTabPath
+          ? { ...t, messages: [], chart: null, isDirty: true }
+          : t,
       ),
     }));
     await saveTab(activeTabPath);
@@ -400,7 +531,10 @@ export function ChatPanel() {
   const messages = activeTab?.messages ?? [];
 
   return (
-    <div style={{ width }} className="flex flex-col h-full border-l border-border shrink-0 relative">
+    <div
+      style={{ width }}
+      className="flex flex-col h-full border-l border-border shrink-0 relative"
+    >
       {/* Resize handle */}
       <div
         onMouseDown={handleResizeMouseDown}
@@ -430,7 +564,11 @@ export function ChatPanel() {
         {streaming && (
           <div className="flex flex-col gap-1 max-w-[90%] self-start items-start">
             <div className="px-3 py-2 rounded-lg text-[13px] leading-relaxed whitespace-pre-wrap break-words bg-secondary text-secondary-foreground">
-              {streamingText || <span className="text-muted-foreground italic text-[12px]">Thinking…</span>}
+              {streamingText || (
+                <span className="text-muted-foreground italic text-[12px]">
+                  Thinking…
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -452,7 +590,9 @@ export function ChatPanel() {
             key={msg.timestamp}
             className={cn(
               "flex flex-col gap-1 max-w-[90%]",
-              msg.role === "user" ? "self-end items-end" : "self-start items-start"
+              msg.role === "user"
+                ? "self-end items-end"
+                : "self-start items-start",
             )}
           >
             <div
@@ -460,7 +600,7 @@ export function ChatPanel() {
                 "px-3 py-2 rounded-lg text-[13px] leading-relaxed whitespace-pre-wrap break-words",
                 msg.role === "user"
                   ? "bg-ring text-background"
-                  : "bg-secondary text-secondary-foreground"
+                  : "bg-secondary text-secondary-foreground",
               )}
             >
               {msg.content}
@@ -475,16 +615,38 @@ export function ChatPanel() {
           onSubmit={handleSubmit}
           className={cn(
             "rounded-lg border transition-colors bg-primary",
-            activeTab ? "border-border focus-within:border-ring" : "border-border opacity-50 pointer-events-none"
+            activeTab
+              ? "border-border focus-within:border-ring"
+              : "border-border opacity-50 pointer-events-none",
           )}
         >
-          <div className={cn("relative", generationMode === "assist" && "min-h-[80px]")}>
+          <div
+            className={cn(
+              "relative",
+              generationMode === "assist" && "min-h-[80px]",
+            )}
+          >
+            <div
+              ref={suggestionMeasureRef}
+              aria-hidden="true"
+              className={cn(
+                "absolute left-0 top-0 -z-10 w-full px-3 pt-2.5 pb-1 text-[13px] leading-relaxed whitespace-pre-wrap break-words font-sans invisible pointer-events-none",
+                generationMode === "assist" ? "min-h-[80px]" : "min-h-[36px]",
+              )}
+            >
+              {input}
+              {suggestion}
+              {"\n"}
+            </div>
             {/* Ghost suggestion layer */}
             {suggestion && (
-              <div 
-                className="absolute inset-0 px-3 pt-2.5 pb-1 text-[13px] leading-relaxed select-none pointer-events-none whitespace-pre-wrap break-words text-muted-foreground/30 font-sans"
+              <div
+                ref={suggestionLayerRef}
+                className={cn(
+                  "absolute inset-0 px-3 pt-2.5 pb-1 text-[13px] leading-relaxed select-none pointer-events-none whitespace-pre-wrap break-words text-muted-foreground/35 font-sans overflow-hidden",
+                  generationMode === "assist" ? "min-h-[80px]" : "min-h-[36px]",
+                )}
                 aria-hidden="true"
-                style={{ font: "inherit", letterSpacing: "inherit" }}
               >
                 <span className="invisible opacity-0">{input}</span>
                 {suggestion}
@@ -494,19 +656,23 @@ export function ChatPanel() {
               ref={textareaRef}
               value={input}
               onChange={handleInput}
+              onScroll={syncSuggestionScroll}
+              onWheel={handleSuggestionWheel}
               onKeyDown={handleKeyDown}
               placeholder={activeTab ? "Message…" : "Open a file to chat"}
-              disabled={!activeTab || (streaming && generationMode !== "assist")}
+              disabled={
+                !activeTab || (streaming && generationMode !== "assist")
+              }
               rows={generationMode === "assist" ? 3 : 1}
               className={cn(
-                "w-full relative z-1 resize-none bg-transparent text-foreground text-[13px] placeholder:text-muted-foreground px-3 pt-2.5 pb-1 outline-none leading-relaxed overflow-y-auto disabled:cursor-not-allowed",
-                generationMode === "assist" ? "min-h-[80px]" : "min-h-[36px]"
+                "w-full relative z-[1] resize-none bg-transparent text-foreground text-[13px] placeholder:text-muted-foreground/45 px-3 pt-2.5 pb-1 outline-none leading-relaxed overflow-y-auto disabled:cursor-not-allowed",
+                generationMode === "assist" ? "min-h-[80px]" : "min-h-[36px]",
               )}
             />
           </div>
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 type="button"
                 onClick={() => openSettings("model")}
                 className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer outline-none px-1"
@@ -530,20 +696,21 @@ export function ChatPanel() {
                     key={mode}
                     type="button"
                     title={
-                      mode === "speed" ? "Fast streaming generation" : 
-                      mode === "quality" ? "Slower multi-step quality generation" :
-                      "Real-time AI suggestions as you type"
+                      mode === "speed"
+                        ? "Fast streaming generation"
+                        : mode === "quality"
+                          ? "Slower multi-step quality generation"
+                          : "Real-time AI suggestions as you type"
                     }
                     onClick={() => {
                       setGenerationMode(mode);
-                      setSuggestion("");
-                      setSuggestionMermaid("");
+                      resetAssistSuggestion();
                     }}
                     className={cn(
                       "px-1.25 py-[2px] uppercase tracking-wide cursor-default transition-colors leading-none",
                       generationMode === mode
                         ? "bg-ring text-background"
-                        : "text-muted-foreground/45 hover:text-muted-foreground bg-transparent"
+                        : "text-muted-foreground/45 hover:text-muted-foreground bg-transparent",
                     )}
                   >
                     {mode}
@@ -559,10 +726,16 @@ export function ChatPanel() {
               title={streaming ? "Stop generation" : "Send"}
               className="h-7 w-7 flex items-center justify-center rounded-md bg-transparent text-ring disabled:opacity-30 hover:opacity-80 disabled:hover:opacity-30 transition-opacity cursor-default"
             >
-              {streaming
-                ? <Square size={12} strokeWidth={1.8} fill="currentColor" className="animate-pulse" />
-                : <Send size={13} strokeWidth={1.8} />
-              }
+              {streaming ? (
+                <Square
+                  size={12}
+                  strokeWidth={1.8}
+                  fill="currentColor"
+                  className="animate-pulse"
+                />
+              ) : (
+                <Send size={13} strokeWidth={1.8} />
+              )}
             </button>
           </div>
         </form>

@@ -75,7 +75,7 @@ function trimEnd(points: Point[], amount: number): Point[] {
 }
 
 function arrowTip(end: Point, prev: Point, size = 10): string {
-  const angle  = Math.atan2(end.y - prev.y, end.x - prev.x);
+  const angle = Math.atan2(end.y - prev.y, end.x - prev.x);
   const spread = Math.PI / 8;
   const l1x = end.x - size * Math.cos(angle - spread);
   const l1y = end.y - size * Math.sin(angle - spread);
@@ -121,31 +121,51 @@ function stripOuterQuotes(text: string): string {
 
 // ── Stroke style ──────────────────────────────────────────────
 
-function strokeProps(style: LayoutEdge["style"]): { strokeDasharray?: string; strokeWidth: number; arrowSize: number } {
+function strokeProps(style: LayoutEdge["style"]): {
+  strokeDasharray?: string;
+  strokeWidth: number;
+  arrowSize: number;
+} {
   switch (style) {
-    case "dotted": return { strokeDasharray: "5 5", strokeWidth: 1.7, arrowSize: 10 };
-    case "thick":  return { strokeWidth: 2.8, arrowSize: 12 };
-    case "open":   return { strokeWidth: 1.7, arrowSize: 0 };
-    default:       return { strokeWidth: 1.7, arrowSize: 10 };
+    case "dotted":
+      return { strokeDasharray: "5 5", strokeWidth: 1.7, arrowSize: 10 };
+    case "thick":
+      return { strokeWidth: 2.8, arrowSize: 12 };
+    case "open":
+      return { strokeWidth: 1.7, arrowSize: 0 };
+    default:
+      return { strokeWidth: 1.7, arrowSize: 10 };
   }
 }
 
 // ── Component ─────────────────────────────────────────────────
 
-export function EdgePath({ edge, onLabelDoubleClick }: { edge: LayoutEdge; onLabelDoubleClick?: (clientX: number, clientY: number) => void }) {
+export function EdgePath({
+  edge,
+  onLabelDoubleClick,
+}: {
+  edge: LayoutEdge;
+  onLabelDoubleClick?: (clientX: number, clientY: number) => void;
+}) {
   const { points, style, label, isBack } = edge;
   if (points.length < 2) return null;
   const displayLabel = label ? stripOuterQuotes(label) : "";
 
   const { strokeDasharray, strokeWidth, arrowSize } = strokeProps(style);
-  const visiblePoints = style === "open" ? points : trimEnd(points, arrowSize * 0.72);
-  const pathD  = pointsToPath(visiblePoints);
-  const arrowD = style === "open"
-    ? ""
-    : arrowTip(points[points.length - 1], visiblePoints[visiblePoints.length - 1], arrowSize);
+  const visiblePoints =
+    style === "open" ? points : trimEnd(points, arrowSize * 0.72);
+  const pathD = pointsToPath(visiblePoints);
+  const arrowD =
+    style === "open"
+      ? ""
+      : arrowTip(
+          points[points.length - 1],
+          visiblePoints[visiblePoints.length - 1],
+          arrowSize,
+        );
   const mid = midpoint(points);
 
-  const stroke        = "var(--chart-edge)";
+  const stroke = "var(--chart-edge)";
   const strokeOpacity = isBack ? 0.6 : 1;
 
   return (
@@ -177,13 +197,30 @@ export function EdgePath({ edge, onLabelDoubleClick }: { edge: LayoutEdge; onLab
           data-edge-label
           transform={`translate(${mid.x}, ${mid.y})`}
           style={{ cursor: onLabelDoubleClick ? "text" : undefined }}
-          onDoubleClick={onLabelDoubleClick ? (e) => { e.stopPropagation(); onLabelDoubleClick(e.clientX, e.clientY); } : undefined}
+          onDoubleClick={
+            onLabelDoubleClick
+              ? (e) => {
+                  e.stopPropagation();
+                  onLabelDoubleClick(e.clientX, e.clientY);
+                }
+              : undefined
+          }
         >
           {/* expanded hit area — pointerEvents="all" ensures fill="transparent" is still clickable */}
-          <rect x={-displayLabel.length * 3.4 - 12} y={-14} width={displayLabel.length * 6.8 + 24} height={28} rx={5} fill="transparent" pointerEvents="all" />
           <rect
-            x={-displayLabel.length * 3.4 - 7} y={-10}
-            width={displayLabel.length * 6.8 + 14} height={20}
+            x={-displayLabel.length * 3.4 - 12}
+            y={-14}
+            width={displayLabel.length * 6.8 + 24}
+            height={28}
+            rx={5}
+            fill="transparent"
+            pointerEvents="all"
+          />
+          <rect
+            x={-displayLabel.length * 3.4 - 7}
+            y={-10}
+            width={displayLabel.length * 6.8 + 14}
+            height={20}
             rx={5}
             fill="var(--chart-bg)"
             stroke="var(--chart-node-border)"

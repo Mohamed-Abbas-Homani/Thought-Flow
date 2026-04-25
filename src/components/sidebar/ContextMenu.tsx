@@ -48,12 +48,18 @@ export function ContextMenu({ menu, onClose }: Props) {
           {
             kind: "action",
             label: "New File",
-            action: () => { menu.onStartCreating?.("file" as CreatingType); onClose(); },
+            action: () => {
+              menu.onStartCreating?.("file" as CreatingType);
+              onClose();
+            },
           },
           {
             kind: "action",
             label: "New Folder",
-            action: () => { menu.onStartCreating?.("folder" as CreatingType); onClose(); },
+            action: () => {
+              menu.onStartCreating?.("folder" as CreatingType);
+              onClose();
+            },
           },
           { kind: "sep" },
         ] as Item[])
@@ -61,7 +67,10 @@ export function ContextMenu({ menu, onClose }: Props) {
     {
       kind: "action",
       label: "Rename",
-      action: () => { menu.onStartRenaming(); onClose(); },
+      action: () => {
+        menu.onStartRenaming();
+        onClose();
+      },
     },
     { kind: "action", label: "Delete", danger: true, action: handleDelete },
   ];
@@ -87,7 +96,7 @@ export function ContextMenu({ menu, onClose }: Props) {
           >
             {item.label}
           </button>
-        )
+        ),
       )}
     </div>
   );

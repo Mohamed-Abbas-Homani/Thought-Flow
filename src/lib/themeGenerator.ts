@@ -1,5 +1,10 @@
 import { completeLLM, type LLMMessage } from "./llm";
-import { themes, type ColorMode, type Theme, type ThemeTokens } from "../themes";
+import {
+  themes,
+  type ColorMode,
+  type Theme,
+  type ThemeTokens,
+} from "../themes";
 import type { ChartThemeTokens } from "../store/settingsStore";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -59,13 +64,13 @@ function stripJsonComments(text: string) {
         escaped = false;
       } else if (ch === "\\") {
         escaped = true;
-      } else if (ch === "\"") {
+      } else if (ch === '"') {
         inString = false;
       }
       continue;
     }
 
-    if (ch === "\"") {
+    if (ch === '"') {
       inString = true;
       out += ch;
       continue;
@@ -105,7 +110,8 @@ function parseJsonObject(text: string) {
 }
 
 function assertHex(value: unknown, key: string): string {
-  if (typeof value === "string" && HEX_RE.test(value)) return value.toUpperCase();
+  if (typeof value === "string" && HEX_RE.test(value))
+    return value.toUpperCase();
   if (typeof value === "string" && SHORT_HEX_RE.test(value)) {
     const [, r, g, b] = value;
     return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
@@ -115,18 +121,21 @@ function assertHex(value: unknown, key: string): string {
 
 function readChartTokens(obj: Record<string, unknown>): ChartThemeTokens {
   return Object.fromEntries(
-    CHART_KEYS.map((key) => [key, assertHex(obj[key], key)])
+    CHART_KEYS.map((key) => [key, assertHex(obj[key], key)]),
   ) as ChartThemeTokens;
 }
 
-function readThemeTokens(obj: Record<string, unknown>, mode: ColorMode): ThemeTokens {
+function readThemeTokens(
+  obj: Record<string, unknown>,
+  mode: ColorMode,
+): ThemeTokens {
   const section = obj[mode];
   if (!section || typeof section !== "object") {
     throw new Error(`Missing ${mode} theme colors.`);
   }
   const source = section as Record<string, unknown>;
   return Object.fromEntries(
-    THEME_KEYS.map((key) => [key, assertHex(source[key], key)])
+    THEME_KEYS.map((key) => [key, assertHex(source[key], key)]),
   ) as unknown as ThemeTokens;
 }
 
@@ -142,7 +151,7 @@ function paletteFromTokens(tokens: ThemeTokens) {
 
 const chartThemePrompt = `You are a senior visual designer specializing in data-visualization and diagram tools.
 Your task is to generate a cohesive color palette for a flowchart canvas.
-Return ONLY strict valid JSON. No markdown, no prose, no comments.
+Return ONLY strict valid JSON. No markdown, no prose, no comments. Your entire response must be one JSON object.
 
 Required JSON shape:
 {
@@ -203,7 +212,7 @@ Required JSON shape:
 const appThemePrompt = `You are a senior product designer and color systems expert.
 Your task is to design a complete application theme for a desktop flowchart tool — all UI surfaces,
 typography, interactive states, semantic colors, and the embedded flowchart canvas.
-Return ONLY strict valid JSON. No markdown, no prose, no comments.
+Return ONLY strict valid JSON. No markdown, no prose, no comments. Your entire response must be one JSON object.
 
 Required JSON shape:
 {
@@ -315,70 +324,13 @@ LIGHT MODE — Mirror the Dark Mode personality, not its values.
 - Avoid color combinations that could be confused by common color-vision deficiencies
   (red-green, blue-yellow). Use lightness contrast as the primary differentiator.`;
 
-
-const appThemeContrastPrompt = `You are a senior design-systems engineer performing a contrast-compliance pass on a generated theme.
-Return ONLY strict valid JSON. No markdown, no prose, no comments.
-
-You will receive the user's original theme request and the generated theme JSON.
-Your job: audit every foreground/background pair and fix any that fail WCAG AA.
-Preserve the theme name, personality, and hue family. Change as few colors as possible.
-When you must adjust, nudge lightness first — do not recolor or desaturate unless necessary.
-
-Required JSON shape is exactly the same as the input theme:
-{
-  "name": "Theme Name",
-  "dark": { "all required theme keys": "#RRGGBB" },
-  "light": { "all required theme keys": "#RRGGBB" }
-}
-
-── CONTRAST REQUIREMENTS ────────────────────────────────────────────────────────
-
-Text on general surfaces — WCAG AA (≥4.5:1):
-  foreground on background
-  foreground on secondary
-  foreground on muted
-  primary-foreground on primary
-  secondary-foreground on secondary
-  muted-foreground on muted
-  muted-foreground on background
-
-Text on semantic surfaces — WCAG AA (≥4.5:1):
-  error-foreground on error
-  success-foreground on success
-  warning-foreground on warning
-  info-foreground on info
-
-Focus / accent ring:
-  ring must be visually distinct from background (≥3:1 non-text contrast is acceptable).
-
-Chart canvas — WCAG AA (≥4.5:1):
-  chart-text on chart-node-bg
-  chart-text on chart-bg (for labels outside nodes)
-
-Chart structure — minimum visibility (≥2.5:1):
-  chart-node-bg must be distinguishable from chart-bg
-  chart-node-border must be visible against chart-bg
-  chart-edge must be visible against chart-bg
-
-── ADJUSTMENT STRATEGY ──────────────────────────────────────────────────────────
-
-1. Identify failing pairs by estimating relative luminance.
-2. For foreground failures: lighten foreground (dark mode) or darken foreground (light mode).
-3. For background failures where bg is too close to fg: deepen the bg (dark mode) or lighten it (light mode).
-4. Preserve the hue and saturation; adjust lightness only.
-5. Do not invent new colors or change the theme hue family.
-6. Do not remove or add keys.
-7. Do not make colors brighter, more saturated, or neon unless the user explicitly requested that.
-8. Semantic colors (error/success/warning/info) may have their foregrounds changed freely to achieve contrast.
-   Do not re-hue the semantic backgrounds — just fix their foregrounds.`;
-
-
 function parsedThemeToTheme(parsed: Record<string, unknown>): Theme {
   const dark = readThemeTokens(parsed, "dark");
   const light = readThemeTokens(parsed, "light");
-  const name = typeof parsed.name === "string" && parsed.name.trim()
-    ? parsed.name.trim().slice(0, 32)
-    : "Custom Theme";
+  const name =
+    typeof parsed.name === "string" && parsed.name.trim()
+      ? parsed.name.trim().slice(0, 32)
+      : "Custom Theme";
 
   return {
     name,
@@ -388,39 +340,91 @@ function parsedThemeToTheme(parsed: Record<string, unknown>): Theme {
   };
 }
 
-export async function generateChartThemeFromPrompt(prompt: string, signal?: AbortSignal): Promise<ChartThemeTokens> {
-  const messages: LLMMessage[] = [{ role: "user", content: prompt }];
+async function completeJsonWithRetries<T>(
+  tag: string,
+  systemPrompt: string,
+  userPrompt: string,
+  parse: (raw: string) => T,
+  signal?: AbortSignal,
+): Promise<T> {
+  let lastRaw = "";
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const messages: LLMMessage[] = [
+      {
+        role: "user",
+        content:
+          attempt === 0
+            ? userPrompt
+            : `Your previous response failed this JSON-only request.
+
+Validation error:
+${lastError instanceof Error ? lastError.message : String(lastError)}
+
+Previous response:
+${lastRaw}
+
+Retry now. Return ONLY one strict valid JSON object matching the required schema. No markdown, prose, comments, or code fences.
+
+Original user request:
+${userPrompt}`,
+      },
+    ];
+
+    lastRaw = await completeLLM(systemPrompt, messages, signal);
+    console.log(
+      `[theme:${tag}] raw model output${attempt > 0 ? ` retry ${attempt}` : ""}:`,
+      lastRaw,
+    );
+
+    try {
+      return parse(lastRaw);
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) {
+        console.warn(
+          `[theme:${tag}] JSON parse failed; retrying (${attempt + 1}/2):`,
+          err,
+        );
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("The model did not return valid JSON.");
+}
+
+export async function generateChartThemeFromPrompt(
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<ChartThemeTokens> {
   console.log("[theme:chart] prompt:", prompt);
-  const raw = await completeLLM(chartThemePrompt, messages, signal);
-  console.log("[theme:chart] raw model output:", raw);
-  const tokens = readChartTokens(parseJsonObject(raw));
+  const tokens = await completeJsonWithRetries(
+    "chart",
+    chartThemePrompt,
+    prompt,
+    (raw) => readChartTokens(parseJsonObject(raw)),
+    signal,
+  );
   console.log("[theme:chart] parsed tokens:", tokens);
   return tokens;
 }
 
-export async function generateAppThemeFromPrompt(prompt: string, signal?: AbortSignal): Promise<Theme> {
-  const messages: LLMMessage[] = [{ role: "user", content: prompt }];
+export async function generateAppThemeFromPrompt(
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<Theme> {
   console.log("[theme:app] prompt:", prompt);
-  const raw = await completeLLM(appThemePrompt, messages, signal);
-  console.log("[theme:app] raw model output:", raw);
-  const firstPassTheme = parsedThemeToTheme(parseJsonObject(raw) as Record<string, unknown>);
-  console.log("[theme:app] first-pass parsed theme:", firstPassTheme);
-
-  const refinedRaw = await completeLLM(
-    appThemeContrastPrompt,
-    [{
-      role: "user",
-      content: `Original user request:
-${prompt}
-
-Generated theme JSON:
-${JSON.stringify(firstPassTheme, null, 2)}`,
-    }],
-    signal
+  const theme = await completeJsonWithRetries(
+    "app",
+    appThemePrompt,
+    prompt,
+    (raw) =>
+      parsedThemeToTheme(parseJsonObject(raw) as Record<string, unknown>),
+    signal,
   );
-  console.log("[theme:app] contrast pass raw model output:", refinedRaw);
-
-  const theme = parsedThemeToTheme(parseJsonObject(refinedRaw) as Record<string, unknown>);
   console.log("[theme:app] parsed theme:", theme);
   return theme;
 }

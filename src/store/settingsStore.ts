@@ -1,13 +1,24 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { applyTheme, applyThemeTokens, themes, type ColorMode, type Theme, type ThemeTokens } from "../themes";
+import {
+  applyTheme,
+  applyThemeTokens,
+  themes,
+  type ColorMode,
+  type Theme,
+  type ThemeTokens,
+} from "../themes";
 
 export type LLMProvider = "ollama" | "openai" | "anthropic";
 export type SettingsSection = "theme" | "model" | "chartTheme";
 
 export type ChartThemeTokens = Pick<
   ThemeTokens,
-  "chart-bg" | "chart-node-bg" | "chart-node-border" | "chart-edge" | "chart-text"
+  | "chart-bg"
+  | "chart-node-bg"
+  | "chart-node-border"
+  | "chart-edge"
+  | "chart-text"
 >;
 
 interface SettingsState {
@@ -20,7 +31,8 @@ interface SettingsState {
   llmUrl: string;
   llmModel: string;
   llmApiKey: string;
-  
+  anthropicMaxTokens: number;
+
   isSettingsOpen: boolean;
   activeSection: SettingsSection;
 
@@ -29,8 +41,19 @@ interface SettingsState {
   addCustomTheme: (theme: Theme) => string;
   deleteCustomTheme: (themeKey: string) => void;
   setChartTheme: (prompt: string, tokens: ChartThemeTokens | null) => void;
-  setLLMConfig: (config: Partial<Pick<SettingsState, "llmProvider" | "llmUrl" | "llmModel" | "llmApiKey">>) => void;
-  
+  setLLMConfig: (
+    config: Partial<
+      Pick<
+        SettingsState,
+        | "llmProvider"
+        | "llmUrl"
+        | "llmModel"
+        | "llmApiKey"
+        | "anthropicMaxTokens"
+      >
+    >,
+  ) => void;
+
   openSettings: (section?: SettingsSection) => void;
   closeSettings: () => void;
 }
@@ -47,18 +70,20 @@ function applySettingsTheme(
   theme: string,
   colorMode: ColorMode,
   customThemes: Record<string, Theme>,
-  chartThemeTokens: ChartThemeTokens | null
+  chartThemeTokens: ChartThemeTokens | null,
 ) {
   applyTheme(theme, colorMode, allThemes(customThemes));
   if (chartThemeTokens) applyThemeTokens(chartThemeTokens);
 }
 
 function slugifyThemeName(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "custom-theme";
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "custom-theme"
+  );
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -73,6 +98,7 @@ export const useSettingsStore = create<SettingsState>()(
       llmUrl: "http://localhost:11434",
       llmModel: "qwen3:14b",
       llmApiKey: "",
+      anthropicMaxTokens: 1024,
 
       isSettingsOpen: false,
       activeSection: "theme",
@@ -97,7 +123,12 @@ export const useSettingsStore = create<SettingsState>()(
           key = `${baseKey}-${i++}`;
         }
         const customThemes = { ...get().customThemes, [key]: newTheme };
-        applySettingsTheme(key, get().colorMode, customThemes, get().chartThemeTokens);
+        applySettingsTheme(
+          key,
+          get().colorMode,
+          customThemes,
+          get().chartThemeTokens,
+        );
         set({ customThemes, theme: key });
         return key;
       },
@@ -108,18 +139,29 @@ export const useSettingsStore = create<SettingsState>()(
         const { [themeKey]: _deleted, ...customThemes } = get().customThemes;
         const nextTheme = get().theme === themeKey ? "raven" : get().theme;
 
-        applySettingsTheme(nextTheme, get().colorMode, customThemes, get().chartThemeTokens);
+        applySettingsTheme(
+          nextTheme,
+          get().colorMode,
+          customThemes,
+          get().chartThemeTokens,
+        );
         set({ customThemes, theme: nextTheme });
       },
 
       setChartTheme: (chartThemePrompt, chartThemeTokens) => {
-        applySettingsTheme(get().theme, get().colorMode, get().customThemes, chartThemeTokens);
+        applySettingsTheme(
+          get().theme,
+          get().colorMode,
+          get().customThemes,
+          chartThemeTokens,
+        );
         set({ chartThemePrompt, chartThemeTokens });
       },
 
       setLLMConfig: (config) => set(config),
 
-      openSettings: (section = "theme") => set({ isSettingsOpen: true, activeSection: section }),
+      openSettings: (section = "theme") =>
+        set({ isSettingsOpen: true, activeSection: section }),
       closeSettings: () => set({ isSettingsOpen: false }),
     }),
     {
@@ -134,9 +176,9 @@ export const useSettingsStore = create<SettingsState>()(
           state.theme,
           colorMode,
           state.customThemes ?? {},
-          state.chartThemeTokens ?? null
+          state.chartThemeTokens ?? null,
         );
       },
-    }
-  )
+    },
+  ),
 );

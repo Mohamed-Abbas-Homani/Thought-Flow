@@ -63,7 +63,9 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
   const refreshChildren = useCallback(async () => {
     try {
       setChildren(await listDir(entry.path));
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   }, [entry.path]);
 
   useEffect(() => {
@@ -87,8 +89,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
       const newPath = `${entry.path}/${name}`;
       if (type === "folder") await mkdir(newPath, { recursive: true });
       else await writeTextFile(newPath, "");
-      if (!expanded) { setExpanded(true); await loadChildren(); }
-      else await refreshChildren();
+      if (!expanded) {
+        setExpanded(true);
+        await loadChildren();
+      } else await refreshChildren();
     } catch (err) {
       console.error("Create failed:", err);
     }
@@ -118,7 +122,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
       onStartRenaming: () => setRenaming(true),
       onStartCreating: entry.isDirectory
         ? (type) => {
-            if (!expanded) { setExpanded(true); if (children === null) loadChildren(); }
+            if (!expanded) {
+              setExpanded(true);
+              if (children === null) loadChildren();
+            }
             setCreating(type);
           }
         : undefined,
@@ -151,7 +158,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
           isDraggingSelf ? "opacity-40" : ""
         }`}
       >
-        <FileText size={16} className="text-muted-foreground shrink-0 pointer-events-none" />
+        <FileText
+          size={16}
+          className="text-muted-foreground shrink-0 pointer-events-none"
+        />
         {renaming ? (
           <RenameInput
             defaultValue={entry.name}
@@ -212,7 +222,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!expanded) { setExpanded(true); if (children === null) loadChildren(); }
+                if (!expanded) {
+                  setExpanded(true);
+                  if (children === null) loadChildren();
+                }
                 setCreating("file");
               }}
             >
@@ -224,7 +237,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!expanded) { setExpanded(true); if (children === null) loadChildren(); }
+                if (!expanded) {
+                  setExpanded(true);
+                  if (children === null) loadChildren();
+                }
                 setCreating("folder");
               }}
             >
@@ -237,7 +253,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
       {expanded && (
         <>
           {loading && (
-            <div style={{ paddingLeft: indent + 24 }} className="flex items-center gap-1.5 h-[28px] text-muted-foreground">
+            <div
+              style={{ paddingLeft: indent + 24 }}
+              className="flex items-center gap-1.5 h-[28px] text-muted-foreground"
+            >
               <Loader2 size={12} className="animate-spin" />
               <span className="text-[12px]">Loading…</span>
             </div>
@@ -246,7 +265,13 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
           {creating && (
             <InlineInput
               indent={indent + 24}
-              icon={creating === "folder" ? <Folder size={13} /> : <FileText size={13} />}
+              icon={
+                creating === "folder" ? (
+                  <Folder size={13} />
+                ) : (
+                  <FileText size={13} />
+                )
+              }
               onCommit={(name) => handleCreate(name, creating)}
               onCancel={() => setCreating(null)}
             />
@@ -263,7 +288,10 @@ export function TreeNode({ entry, depth, onRefreshParent }: Props) {
             ))}
 
           {!loading && children?.length === 0 && !creating && (
-            <div style={{ paddingLeft: indent + 24 }} className="flex items-center h-[28px] text-muted-foreground/60 text-[12px] italic">
+            <div
+              style={{ paddingLeft: indent + 24 }}
+              className="flex items-center h-[28px] text-muted-foreground/60 text-[12px] italic"
+            >
               Empty
             </div>
           )}

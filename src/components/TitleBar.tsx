@@ -1,6 +1,16 @@
 import { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, Copy, X, PanelLeft, Settings, Sun, Moon, MessageSquare } from "lucide-react";
+import {
+  Minus,
+  Square,
+  Copy,
+  X,
+  PanelLeft,
+  Settings,
+  Sun,
+  Moon,
+  MessageSquare,
+} from "lucide-react";
 import { SettingsModal } from "./SettingsModal";
 import { TabBar } from "./TabBar";
 import { useSettingsStore } from "../store/settingsStore";
@@ -15,7 +25,12 @@ interface TitleBarProps {
   onToggleChat: () => void;
 }
 
-export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat }: TitleBarProps) {
+export function TitleBar({
+  sidebarOpen,
+  onToggleSidebar,
+  chatOpen,
+  onToggleChat,
+}: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const { colorMode, setColorMode, openSettings } = useSettingsStore();
   const { sidebarWidth } = useLayoutStore();
@@ -24,9 +39,13 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
     appWindow.isMaximized().then(setIsMaximized);
 
     let unlistenResize: (() => void) | undefined;
-    appWindow.onResized(() => {
-      appWindow.isMaximized().then(setIsMaximized);
-    }).then((fn) => { unlistenResize = fn; });
+    appWindow
+      .onResized(() => {
+        appWindow.isMaximized().then(setIsMaximized);
+      })
+      .then((fn) => {
+        unlistenResize = fn;
+      });
 
     return () => unlistenResize?.();
   }, []);
@@ -35,7 +54,8 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
     if (e.button !== 0) return;
 
     const target = e.target as HTMLElement;
-    if (target.closest("button, input, textarea, select, [role='button']")) return;
+    if (target.closest("button, input, textarea, select, [role='button']"))
+      return;
 
     if (isMaximized) {
       void appWindow.toggleMaximize();
@@ -45,7 +65,8 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
     void appWindow.startDragging();
   }
 
-  const iconBtn = "h-full px-2.5 flex items-center justify-center bg-transparent border-none cursor-default transition-colors hover:bg-primary";
+  const iconBtn =
+    "h-full px-2.5 flex items-center justify-center bg-transparent border-none cursor-default transition-colors hover:bg-primary";
 
   return (
     <>
@@ -54,8 +75,8 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
         onMouseDown={handleDragMouseDown}
       >
         {/* Left: sidebar control + settings */}
-        <div 
-          className="flex items-stretch h-full overflow-hidden transition-[width] duration-300 ease-in-out" 
+        <div
+          className="flex items-stretch h-full overflow-hidden transition-[width] duration-300 ease-in-out"
           style={{ width: sidebarOpen ? sidebarWidth : 120 }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -77,12 +98,18 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
         </div>
 
         {/* Center: open tabs */}
-        <div className="flex-1 flex items-stretch h-full min-w-0 overflow-hidden" onMouseDown={handleDragMouseDown}>
+        <div
+          className="flex-1 flex items-stretch h-full min-w-0 overflow-hidden"
+          onMouseDown={handleDragMouseDown}
+        >
           <TabBar />
         </div>
 
         {/* Right: window controls */}
-        <div className="flex items-stretch h-full" onMouseDown={(e) => e.stopPropagation()}>
+        <div
+          className="flex items-stretch h-full"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <button
             title={chatOpen ? "Collapse chat" : "Expand chat"}
             className={`${iconBtn} ${chatOpen ? "text-foreground" : "text-foreground/50 hover:text-foreground"}`}
@@ -92,11 +119,21 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
           </button>
 
           <button
-            title={colorMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={
+              colorMode === "dark"
+                ? "Switch to light mode"
+                : "Switch to dark mode"
+            }
             className="flex items-center justify-center w-[46px] h-full bg-transparent border-none text-foreground/70 hover:text-foreground hover:bg-primary cursor-default transition-colors"
-            onClick={() => setColorMode(colorMode === "dark" ? "light" : "dark")}
+            onClick={() =>
+              setColorMode(colorMode === "dark" ? "light" : "dark")
+            }
           >
-            {colorMode === "dark" ? <Sun size={17} strokeWidth={1.5} /> : <Moon size={17} strokeWidth={1.5} />}
+            {colorMode === "dark" ? (
+              <Sun size={17} strokeWidth={1.5} />
+            ) : (
+              <Moon size={17} strokeWidth={1.5} />
+            )}
           </button>
 
           <button
@@ -111,10 +148,11 @@ export function TitleBar({ sidebarOpen, onToggleSidebar, chatOpen, onToggleChat 
             className="flex items-center justify-center w-[46px] h-full bg-transparent border-none text-foreground/70 hover:text-foreground hover:bg-primary cursor-default transition-colors"
             onClick={() => appWindow.toggleMaximize()}
           >
-            {isMaximized
-              ? <Copy size={16} strokeWidth={1.5} />
-              : <Square size={16} strokeWidth={1.5} />
-            }
+            {isMaximized ? (
+              <Copy size={16} strokeWidth={1.5} />
+            ) : (
+              <Square size={16} strokeWidth={1.5} />
+            )}
           </button>
           <button
             title="Close"

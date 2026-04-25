@@ -20,16 +20,27 @@ export interface Tab {
 
 const DELIMITER = "\n[+]\n";
 
-function parseFile(raw: string): { messages: ChatMessage[]; chart: ChartGraph | null } {
+function parseFile(raw: string): {
+  messages: ChatMessage[];
+  chart: ChartGraph | null;
+} {
   const idx = raw.indexOf(DELIMITER);
   const part1 = idx === -1 ? raw : raw.slice(0, idx);
-  const part2 = idx === -1 ? ""  : raw.slice(idx + DELIMITER.length);
+  const part2 = idx === -1 ? "" : raw.slice(idx + DELIMITER.length);
 
   let messages: ChatMessage[] = [];
   let chart: ChartGraph | null = null;
 
-  try { messages = JSON.parse(part1.trim()) ?? []; } catch { /* empty or malformed */ }
-  try { chart    = JSON.parse(part2.trim());        } catch { /* no chart yet */ }
+  try {
+    messages = JSON.parse(part1.trim()) ?? [];
+  } catch {
+    /* empty or malformed */
+  }
+  try {
+    chart = JSON.parse(part2.trim());
+  } catch {
+    /* no chart yet */
+  }
 
   return { messages, chart };
 }
@@ -43,17 +54,23 @@ function serializeTab(tab: Tab): string {
 interface TabStore {
   tabs: Tab[];
   activeTabPath: string | null;
-  openTab:       (path: string, name: string) => Promise<void>;
-  closeTab:      (path: string) => void;
-  setActiveTab:  (path: string) => void;
-  updatePath:    (oldPath: string, newPath: string, newName?: string) => void;
-  addMessage:    (path: string, msg: ChatMessage) => void;
-  setChart:      (path: string, chart: ChartGraph) => void;
+  openTab: (path: string, name: string) => Promise<void>;
+  closeTab: (path: string) => void;
+  setActiveTab: (path: string) => void;
+  updatePath: (oldPath: string, newPath: string, newName?: string) => void;
+  addMessage: (path: string, msg: ChatMessage) => void;
+  setChart: (path: string, chart: ChartGraph) => void;
   applyChartTheme: (path: string, tokens: ChartThemeTokens) => Promise<void>;
-  renameNode:    (path: string, nodeId: string, newText: string) => Promise<void>;
-  renameEdge:    (path: string, from: string, to: string, currentLabel: string, newLabel: string) => Promise<void>;
-  renameTitle:   (path: string, newTitle: string) => Promise<void>;
-  saveTab:       (path: string) => Promise<void>;
+  renameNode: (path: string, nodeId: string, newText: string) => Promise<void>;
+  renameEdge: (
+    path: string,
+    from: string,
+    to: string,
+    currentLabel: string,
+    newLabel: string,
+  ) => Promise<void>;
+  renameTitle: (path: string, newTitle: string) => Promise<void>;
+  saveTab: (path: string) => Promise<void>;
 }
 
 export const useTabStore = create<TabStore>((set, get) => ({
@@ -85,9 +102,9 @@ export const useTabStore = create<TabStore>((set, get) => ({
 
   closeTab: (path) => {
     set((s) => {
-      const idx     = s.tabs.findIndex((t) => t.path === path);
+      const idx = s.tabs.findIndex((t) => t.path === path);
       const newTabs = s.tabs.filter((t) => t.path !== path);
-      let active    = s.activeTabPath;
+      let active = s.activeTabPath;
 
       if (active === path) {
         const next = newTabs[idx] ?? newTabs[idx - 1] ?? null;
@@ -109,7 +126,8 @@ export const useTabStore = create<TabStore>((set, get) => ({
       if (existingNewTab && movedTab) {
         return {
           tabs: s.tabs.filter((t) => t.path !== oldPath),
-          activeTabPath: s.activeTabPath === oldPath ? newPath : s.activeTabPath,
+          activeTabPath:
+            s.activeTabPath === oldPath ? newPath : s.activeTabPath,
         };
       }
 
@@ -141,7 +159,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       tabs: s.tabs.map((t) =>
         t.path === path
           ? { ...t, messages: [...t.messages, msg], isDirty: true }
-          : t
+          : t,
       ),
     }));
   },
@@ -149,7 +167,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
   setChart: (path, chart) => {
     set((s) => ({
       tabs: s.tabs.map((t) =>
-        t.path === path ? { ...t, chart, isDirty: true } : t
+        t.path === path ? { ...t, chart, isDirty: true } : t,
       ),
     }));
   },
@@ -173,9 +191,14 @@ export const useTabStore = create<TabStore>((set, get) => ({
           ...t.chart,
           styles: {
             ...t.chart.styles,
-            nodeStyles: Object.fromEntries(t.chart.nodes.map((n) => [n.id, nodeStyle])),
+            nodeStyles: Object.fromEntries(
+              t.chart.nodes.map((n) => [n.id, nodeStyle]),
+            ),
             edgeStyles: Object.fromEntries(
-              t.chart.edges.map((e, i) => [`${e.from}->${e.to}:${i}`, edgeStyle])
+              t.chart.edges.map((e, i) => [
+                `${e.from}->${e.to}:${i}`,
+                edgeStyle,
+              ]),
             ),
           },
           extensions: {
@@ -210,18 +233,25 @@ export const useTabStore = create<TabStore>((set, get) => ({
         const chart = {
           ...t.chart,
           nodes: t.chart.nodes.map((n) =>
-            n.id === nodeId ? { ...n, text: newText } : n
+            n.id === nodeId ? { ...n, text: newText } : n,
           ),
         };
         // Sync the last assistant message so the patcher prompt sees the new label
         const newMermaid = chartToMermaid(chart);
         let lastAssistantIdx = -1;
         for (let i = t.messages.length - 1; i >= 0; i--) {
-          if (t.messages[i].role === "assistant") { lastAssistantIdx = i; break; }
+          if (t.messages[i].role === "assistant") {
+            lastAssistantIdx = i;
+            break;
+          }
         }
-        const messages = lastAssistantIdx >= 0 && t.messages[lastAssistantIdx].content.includes("graph ")
-          ? t.messages.map((m, i) => i === lastAssistantIdx ? { ...m, content: newMermaid } : m)
-          : t.messages;
+        const messages =
+          lastAssistantIdx >= 0 &&
+          t.messages[lastAssistantIdx].content.includes("graph ")
+            ? t.messages.map((m, i) =>
+                i === lastAssistantIdx ? { ...m, content: newMermaid } : m,
+              )
+            : t.messages;
         return { ...t, chart, messages, isDirty: true };
       }),
     }));
@@ -236,9 +266,20 @@ export const useTabStore = create<TabStore>((set, get) => ({
         const chart = {
           ...t.chart,
           edges: t.chart.edges.map((e) => {
-            if (!updated && e.from === from && e.to === to && e.label === currentLabel) {
+            if (
+              !updated &&
+              e.from === from &&
+              e.to === to &&
+              e.label === currentLabel
+            ) {
               updated = true;
-              return { ...e, label: newLabel, type: (newLabel ? "conditional" : "sequential") as "conditional" | "sequential" };
+              return {
+                ...e,
+                label: newLabel,
+                type: (newLabel ? "conditional" : "sequential") as
+                  | "conditional"
+                  | "sequential",
+              };
             }
             return e;
           }),
@@ -246,11 +287,18 @@ export const useTabStore = create<TabStore>((set, get) => ({
         const newMermaid = chartToMermaid(chart);
         let lastAssistantIdx = -1;
         for (let i = t.messages.length - 1; i >= 0; i--) {
-          if (t.messages[i].role === "assistant") { lastAssistantIdx = i; break; }
+          if (t.messages[i].role === "assistant") {
+            lastAssistantIdx = i;
+            break;
+          }
         }
-        const messages = lastAssistantIdx >= 0 && t.messages[lastAssistantIdx].content.includes("graph ")
-          ? t.messages.map((m, i) => i === lastAssistantIdx ? { ...m, content: newMermaid } : m)
-          : t.messages;
+        const messages =
+          lastAssistantIdx >= 0 &&
+          t.messages[lastAssistantIdx].content.includes("graph ")
+            ? t.messages.map((m, i) =>
+                i === lastAssistantIdx ? { ...m, content: newMermaid } : m,
+              )
+            : t.messages;
         return { ...t, chart, messages, isDirty: true };
       }),
     }));
@@ -261,15 +309,25 @@ export const useTabStore = create<TabStore>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => {
         if (t.path !== path || !t.chart) return t;
-        const chart = { ...t.chart, meta: { ...t.chart.meta, title: newTitle } };
+        const chart = {
+          ...t.chart,
+          meta: { ...t.chart.meta, title: newTitle },
+        };
         const newMermaid = chartToMermaid(chart);
         let lastAssistantIdx = -1;
         for (let i = t.messages.length - 1; i >= 0; i--) {
-          if (t.messages[i].role === "assistant") { lastAssistantIdx = i; break; }
+          if (t.messages[i].role === "assistant") {
+            lastAssistantIdx = i;
+            break;
+          }
         }
-        const messages = lastAssistantIdx >= 0 && t.messages[lastAssistantIdx].content.includes("graph ")
-          ? t.messages.map((m, i) => i === lastAssistantIdx ? { ...m, content: newMermaid } : m)
-          : t.messages;
+        const messages =
+          lastAssistantIdx >= 0 &&
+          t.messages[lastAssistantIdx].content.includes("graph ")
+            ? t.messages.map((m, i) =>
+                i === lastAssistantIdx ? { ...m, content: newMermaid } : m,
+              )
+            : t.messages;
         return { ...t, chart, messages, isDirty: true };
       }),
     }));
