@@ -194,8 +194,9 @@ export function NodeShape({ node, focused, onDoubleClick }: NodeShapeProps) {
     <g
       style={{
         transform:  `translate(${x}px, ${y}px)`,
-        transition: "transform 0.35s cubic-bezier(0.4,0,0.2,1)",
+        transition: "transform 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.35s ease-in-out",
         cursor: onDoubleClick ? "text" : undefined,
+        opacity: node.styleClass === "Ghost" ? 0.4 : 1,
       }}
       className={textClass(type)}
       onDoubleClick={onDoubleClick}

@@ -113,6 +113,13 @@ function useMermaidSvg(chart: ChartGraph | null, isDark: boolean, theme: string)
             fill: var(--chart-edge) !important;
             stroke: var(--chart-edge) !important;
           }
+          .node.Ghost rect, .node.Ghost polygon, .node.Ghost circle, .node.Ghost ellipse, .node.Ghost path {
+            opacity: 0.4 !important;
+            stroke-dasharray: 5 5 !important;
+          }
+          .node.Ghost .label {
+            opacity: 0.4 !important;
+          }
         `,
         flowchart: { curve: "basis", padding: 20, htmlLabels: true },
         securityLevel: "loose",

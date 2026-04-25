@@ -284,35 +284,6 @@ ${bodySvg}
   let activeIndex = -1;
   const chartTitle = "${escapeHtml(title)}";
 
-  function setupTitle() {
-    const startNode = nodes.find(n => n.getAttribute('data-export-node-id') === 'n1' || n.getAttribute('data-node') === 'n1') || nodes[0];
-    if (!startNode || !chartTitle) return;
-    
-    // Get absolute screen positions
-    const nodeRect = startNode.getBoundingClientRect();
-    const svgRect = svg.getBoundingClientRect();
-    
-    // Calculate the current effective scale of the SVG relative to the screen
-    // (This accounts for the CSS transform translate/scale we apply)
-    const st = window.getComputedStyle(svg);
-    const matrix = new DOMMatrix(st.transform);
-    const currentScale = matrix.a || 1;
-    
-    // Map screen coordinates back to SVG internal coordinate space
-    const centerX = (nodeRect.left + nodeRect.width / 2 - svgRect.left) / currentScale;
-    const topY = (nodeRect.top - svgRect.top) / currentScale;
-    
-    const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    titleEl.textContent = chartTitle;
-    titleEl.setAttribute("x", centerX);
-    titleEl.setAttribute("y", topY - 60);
-    titleEl.setAttribute("text-anchor", "middle");
-    titleEl.setAttribute("fill", "var(--chart-text)");
-    titleEl.setAttribute("font-size", "48px");
-    titleEl.setAttribute("font-weight", "900");
-    titleEl.setAttribute("style", "pointer-events: none; opacity: 0.95; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); font-family: inherit;");
-    svg.appendChild(titleEl);
-  }
 
   function svgSize() {
     const viewBox = svg.viewBox?.baseVal;
@@ -466,7 +437,6 @@ ${bodySvg}
   });
 
   window.addEventListener("resize", fit);
-  setupTitle();
   fit();
 })();
 </script>

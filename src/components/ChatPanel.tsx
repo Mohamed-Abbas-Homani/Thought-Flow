@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Paintbrush, Send, Square, Trash2 } from "lucide-react";
 import { useTabStore, type ChatMessage } from "../store/tabStore";
-import { streamLLM } from "../lib/llm";
+import { streamLLM, suggestLLM, refineLLM } from "../lib/llm";
 import { mermaidToChart } from "../lib/chart/mermaid";
 import { validateAndFix } from "../lib/chart/validate";
 import { parseStreamingChart, partialToGraph } from "../lib/chart/streamParse";
@@ -14,7 +14,7 @@ import { useLayoutStore } from "../store/layoutStore";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
-type GenerationMode = "speed" | "quality";
+type GenerationMode = "speed" | "quality" | "assist";
 
 export function ChatPanel() {
   const { tabs, activeTabPath, addMessage, setChart, saveTab } = useTabStore();
@@ -26,12 +26,18 @@ export function ChatPanel() {
   const [streaming, setStreaming]   = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("speed");
+  const [suggestion, setSuggestion] = useState<string>("");
+  const [, setSuggestionMermaid] = useState<string>("");
   
   const { llmModel, openSettings } = useSettingsStore();
 
   const bottomRef      = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const abortRef       = useRef<AbortController | null>(null);
+  const suggestAbortRef = useRef<AbortController | null>(null);
+  const refineAbortRef = useRef<AbortController | null>(null);
+  const suggestTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const refineTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Undo/redo history
   const historyRef      = useRef<string[]>([""]);
@@ -260,10 +266,83 @@ export function ChatPanel() {
     const assistantMsg: ChatMessage = { role: "assistant", content: full, timestamp: Date.now() };
     addMessage(activeTabPath, assistantMsg);
     await saveTab(activeTabPath);
+    setSuggestion("");
+    setSuggestionMermaid("");
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }
 
+  async function fetchSuggestion(text: string) {
+    if (!activeTabPath) return;
+    
+    suggestAbortRef.current?.abort();
+    suggestAbortRef.current = new AbortController();
+    
+    const history = (activeTab?.messages ?? []).map(({ role, content }) => ({ role, content }));
+    const result = await suggestLLM(text, history, suggestAbortRef.current.signal);
+    
+    if (result && activeTabPathRef.current) {
+      setSuggestion(result.suggestionText);
+      setSuggestionMermaid(result.suggestionMermaid);
+      
+      // Inject ghost styling and additional nodes into chart
+      if (result.mermaid) {
+        let mermaidCode = result.mermaid.trim();
+        if (result.suggestionMermaid) {
+          // Identify nodes in suggestionMermaid to apply Ghost class
+          const ghostNodes = Array.from(result.suggestionMermaid.matchAll(/n\d+/g)).map(m => m[0]);
+          const uniqueGhostNodes = Array.from(new Set(ghostNodes));
+          
+          mermaidCode += `\nclassDef Ghost opacity:0.4,stroke-dasharray: 5 5;\n`;
+          mermaidCode += result.suggestionMermaid + "\n";
+          uniqueGhostNodes.forEach(id => {
+            mermaidCode += `class ${id} Ghost\n`;
+          });
+        }
+        
+        try {
+          const chart = validateAndFix(mermaidToChart(mermaidCode)).fixed;
+          setChart(activeTabPathRef.current, chart);
+        } catch (e) {
+          console.warn("[assist] failed to apply suggestion to chart", e);
+        }
+      }
+    }
+  }
+
+  async function handleRefinement() {
+    if (!activeTabPath || !activeTab?.chart) return;
+    
+    // Convert current chart to mermaid for refinement
+    const { chartToMermaid } = await import("../lib/chart/mermaid");
+    const currentMermaid = chartToMermaid(activeTab.chart);
+    
+    refineAbortRef.current?.abort();
+    refineAbortRef.current = new AbortController();
+    
+    try {
+      const refinedMermaid = await refineLLM(currentMermaid, refineAbortRef.current.signal);
+      if (refinedMermaid && activeTabPathRef.current) {
+        const refinedChart = validateAndFix(mermaidToChart(refinedMermaid)).fixed;
+        setChart(activeTabPathRef.current, refinedChart);
+        console.log("[assist] refinement applied");
+      }
+    } catch (e) {
+      console.warn("[assist] refinement failed", e);
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Tab" && suggestion) {
+      e.preventDefault();
+      const combined = input + suggestion;
+      setInput(combined);
+      setSuggestion("");
+      setSuggestionMermaid("");
+      // Briefly restart debounce for the next continuation
+      if (suggestTimeoutRef.current) clearTimeout(suggestTimeoutRef.current);
+      suggestTimeoutRef.current = setTimeout(() => fetchSuggestion(combined), 500);
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === "z") {
       e.preventDefault();
       if (e.shiftKey) redo(); else undo();
@@ -290,6 +369,22 @@ export function ChatPanel() {
     prev.push(val);
     historyRef.current = prev;
     historyIndexRef.current = prev.length - 1;
+
+    // Assist mode logic
+    setSuggestion("");
+    setSuggestionMermaid("");
+    if (suggestTimeoutRef.current) clearTimeout(suggestTimeoutRef.current);
+    if (refineTimeoutRef.current) clearTimeout(refineTimeoutRef.current);
+    
+    if (generationMode === "assist" && val.trim().length > 3) {
+      suggestTimeoutRef.current = setTimeout(() => {
+        fetchSuggestion(val);
+      }, 600);
+
+      refineTimeoutRef.current = setTimeout(() => {
+        handleRefinement();
+      }, 2000);
+    }
   }
 
   async function clearChat() {
@@ -383,16 +478,32 @@ export function ChatPanel() {
             activeTab ? "border-border focus-within:border-ring" : "border-border opacity-50 pointer-events-none"
           )}
         >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            placeholder={activeTab ? "Message…" : "Open a file to chat"}
-            disabled={!activeTab || streaming}
-            rows={1}
-            className="w-full resize-none bg-transparent text-foreground text-[13px] placeholder:text-muted-foreground px-3 pt-2.5 pb-1 outline-none leading-relaxed overflow-y-auto disabled:cursor-not-allowed"
-          />
+          <div className={cn("relative", generationMode === "assist" && "min-h-[80px]")}>
+            {/* Ghost suggestion layer */}
+            {suggestion && (
+              <div 
+                className="absolute inset-0 px-3 pt-2.5 pb-1 text-[13px] leading-relaxed select-none pointer-events-none whitespace-pre-wrap break-words text-muted-foreground/30 font-sans"
+                aria-hidden="true"
+                style={{ font: "inherit", letterSpacing: "inherit" }}
+              >
+                <span className="invisible opacity-0">{input}</span>
+                {suggestion}
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              placeholder={activeTab ? "Message…" : "Open a file to chat"}
+              disabled={!activeTab || (streaming && generationMode !== "assist")}
+              rows={generationMode === "assist" ? 3 : 1}
+              className={cn(
+                "w-full relative z-1 resize-none bg-transparent text-foreground text-[13px] placeholder:text-muted-foreground px-3 pt-2.5 pb-1 outline-none leading-relaxed overflow-y-auto disabled:cursor-not-allowed",
+                generationMode === "assist" ? "min-h-[80px]" : "min-h-[36px]"
+              )}
+            />
+          </div>
           <div className="flex items-center justify-between px-2 pb-2">
             <div className="flex items-center gap-2">
               <button 
@@ -414,12 +525,20 @@ export function ChatPanel() {
               </button>
 
               <div className="flex rounded-md border border-border overflow-hidden text-[9px]">
-                {(["speed", "quality"] as const).map((mode) => (
+                {(["speed", "quality", "assist"] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
-                    title={mode === "speed" ? "Fast streaming generation" : "Slower multi-step quality generation"}
-                    onClick={() => setGenerationMode(mode)}
+                    title={
+                      mode === "speed" ? "Fast streaming generation" : 
+                      mode === "quality" ? "Slower multi-step quality generation" :
+                      "Real-time AI suggestions as you type"
+                    }
+                    onClick={() => {
+                      setGenerationMode(mode);
+                      setSuggestion("");
+                      setSuggestionMermaid("");
+                    }}
                     className={cn(
                       "px-1.25 py-[2px] uppercase tracking-wide cursor-default transition-colors leading-none",
                       generationMode === mode

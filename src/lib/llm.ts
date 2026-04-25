@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { ChartGraph } from "./chart/types";
 import { chartToMermaid } from "./chart/mermaid";
 import { useSettingsStore } from "../store/settingsStore";
@@ -65,6 +66,57 @@ Rules:
 - Output the COMPLETE modified Mermaid, not just the changed lines`;
 }
 
+export const ASSIST_SYSTEM_PROMPT = `You are an AI assistant for a flowchart tool. The user is typing a prompt.
+Your task is to provide:
+1. The current Mermaid flowchart code based on what they have written so far.
+2. A single concise sentence suggestion to complete their current thought.
+3. The ADDITIONAL Mermaid code (nodes and edges) for that suggestion.
+
+FLOWCHART RULES:
+- First node must be n1(["Start"])
+- Node IDs must be sequential: n1, n2, n3, ...
+- Wrap node labels in double quotes: n2["Label"]
+- Every node must be defined with its label in shape brackets on its FIRST appearance.
+- Decision nodes {"text"} MUST have ≥2 outgoing labeled edges.
+- KeepLabels concise.
+
+SHAPE GUIDE:
+([ "text" ]) = start/end | [ "text" ] = action | { "text" } = decision
+[/ "text" /] = io | {{ "text" }} = loop | [( "text" )] = datastore
+
+Respond ONLY in JSON format:
+{
+  "mermaid": "graph TD\\nn1([\"Start\"]) --> n2[\"Step\"]",
+  "suggestionText": "completion of sentence",
+  "suggestionMermaid": "n2 --> n3[\"Next Step\"]"
+}
+
+IMPORTANT:
+- Use \\n for newlines in mermaid.
+- Return ONLY JSON.
+- suggestionMermaid nodes should link to existing nodes.`;
+
+export const REFINE_SYSTEM_PROMPT = `You are a flowchart validator and enhancer.
+Analyze the provided Mermaid code and enhance it by:
+1. Removing duplicate nodes or edges.
+2. Ensuring all nodes are connected (no orphans).
+3. Choosing the best shapes based on node content (decision nodes for questions, stadium for start/stop, etc.).
+4. Fixing IDs to be perfectly sequential (n1, n2, n3...).
+5. Ensuring valid Mermaid syntax.
+6. CRITICAL: DO NOT add new business steps or nodes. Only refine what is already there.
+
+SHAPE AND EDGE SEMANTICS:
+- Start Node: Use ([ "text" ]) for initial trigger/received request. One global start preferred.
+- End Node: Use ([ "text" ]) for completion, cancellation, or terminal failure.
+- Process: Use [ "text" ] for standard internal actions, work, and generic steps.
+- Decision: Use { "text" } for branching logic. Phrased as a question. MUST have labeled outgoing edges.
+- Input/Output: Use [/ "text" /] for user input, displaying reports, API payloads, or exported data.
+- Data Store: Use [( "text" )] for reading/writing to a database, ledger, or persistent file system.
+- Subprocess: Use [[ "text" ]] for complex nested routines or standard reusable procedures.
+- Edges: Use standard --> for main flow, -.-> for async/optional side-paths, and ==> for critical paths.
+
+Respond ONLY with the enhanced Mermaid code — no explanation, no fences.`;
+
 export async function streamLLM(
   messages: LLMMessage[],
   onChunk: (token: string) => void,
@@ -116,6 +168,39 @@ export async function completeLLM(
   }
 
   return chunks.join("").trim();
+}
+
+export async function suggestLLM(
+  prompt: string,
+  history: LLMMessage[],
+  signal?: AbortSignal
+): Promise<{ mermaid: string; suggestionText: string; suggestionMermaid: string } | null> {
+  const messages: LLMMessage[] = [
+    ...history,
+    { role: "user", content: prompt }
+  ];
+
+  try {
+    const raw = await completeLLM(ASSIST_SYSTEM_PROMPT, messages, signal);
+    // Handle cases where LLM includes markdown fences despite the prompt
+    const clean = raw.replace(/```(?:json)?/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(clean);
+    
+    return {
+      mermaid: parsed.mermaid || "",
+      suggestionText: parsed.suggestionText || "",
+      suggestionMermaid: parsed.suggestionMermaid || ""
+    };
+  } catch (err) {
+    console.warn("[assist] failed to parse suggestion:", err);
+    return null;
+  }
+}
+
+export async function refineLLM(mermaid: string, signal?: AbortSignal): Promise<string> {
+  const messages: LLMMessage[] = [{ role: "user", content: mermaid }];
+  const raw = await completeLLM(REFINE_SYSTEM_PROMPT, messages, signal);
+  return raw.replace(/```(?:mermaid)?/g, "").replace(/```/g, "").trim();
 }
 
 async function streamOllama(
@@ -170,7 +255,7 @@ async function streamOpenAI(
   signal?: AbortSignal
 ): Promise<string> {
   const baseUrl = (url || "https://api.openai.com/v1").replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await tauriFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -223,26 +308,39 @@ async function streamAnthropic(
   const system = messages.find(m => m.role === "system")?.content;
   const userMessages = messages.filter(m => m.role !== "system");
 
-  const response = await fetch(`${baseUrl}/messages`, {
+  const cleanApiKey = apiKey.trim();
+  const body = {
+    model,
+    system,
+    messages: userMessages,
+    stream: true,
+    max_tokens: 1024,
+    temperature: 0
+  };
+
+  const requestHeaders = {
+    "content-type": "application/json",
+    "x-api-key": cleanApiKey,
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true",
+  };
+  console.log("[anthropic] url:", `${baseUrl}/messages`);
+  console.log("[anthropic] headers:", { ...requestHeaders, "x-api-key": cleanApiKey ? `${cleanApiKey.slice(0, 8)}...${cleanApiKey.slice(-4)} (len=${cleanApiKey.length})` : "(empty)" });
+  console.log("[anthropic] body:", JSON.stringify(body, null, 2));
+
+  const response = await tauriFetch(`${baseUrl}/messages`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "dangerously-allow-browser": "true"
-    },
-    body: JSON.stringify({
-      model,
-      system,
-      messages: userMessages,
-      max_tokens: 4096,
-      stream: true,
-      temperature: 0
-    }),
+    headers: requestHeaders,
+    body: JSON.stringify(body),
     signal,
   });
 
-  if (!response.ok) throw new Error(`Anthropic error: ${response.status}`);
+  console.log("[anthropic] response status:", response.status, response.statusText);
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error("[anthropic] error body:", errBody);
+    throw new Error(`Anthropic error: ${response.status} — ${errBody}`);
+  }
 
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();

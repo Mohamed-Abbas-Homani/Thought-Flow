@@ -133,6 +133,7 @@ interface LineResult {
   edges: Array<{ from: string; to: string; style: ChartEdge["style"]; label: string }>;
   title?: string;
   direction?: "vertical" | "horizontal";
+  nodeClass?: { id: string; className: string };
 }
 
 export function parseMermaidLine(line: string): LineResult {
@@ -148,6 +149,14 @@ export function parseMermaidLine(line: string): LineResult {
 
   if (trimmed.startsWith("title:")) {
     result.title = trimmed.slice(6).trim();
+    return result;
+  }
+
+  if (trimmed.startsWith("class ")) {
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 3) {
+      result.nodeClass = { id: parts[1], className: parts[2] };
+    }
     return result;
   }
 
@@ -230,6 +239,14 @@ export function mermaidToChart(text: string): ChartGraph {
 
     if (title) meta.title = title;
     if (direction) meta.direction = direction;
+
+    const { nodeClass } = parseMermaidLine(line);
+    if (nodeClass) {
+      const existing = nodeMap.get(nodeClass.id);
+      if (existing) {
+        existing.styleClass = nodeClass.className;
+      }
+    }
 
     for (const n of nodes) {
       if (!n.text) continue;
