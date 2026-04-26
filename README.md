@@ -7,9 +7,6 @@ Thought Flow is an AI-powered desktop flowchart workspace for turning chat promp
 [Watch Demo Video](https://github.com/Mohamed-Abbas-Homani/Thought-Flow/blob/main/docs/demo/thought-flow-demo.mp4)
 ## Screenshots
 
-> Screenshot placeholders  
-> Replace these with real screenshots when ready.
-
 ### Main Workspace
 
 ![Main workspace](./docs/screenshots/main-workspace.png)
